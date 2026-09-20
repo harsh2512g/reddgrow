@@ -1,0 +1,12 @@
+# Reference VM sizing mirrored by scripts/services.mjs CLI flags.
+# scripts/lima.mjs writes the repository-owned Lima override before startup:
+# no host mounts/SSH forwarding; only TCP 54320-54324/56379 on 127.0.0.1.
+# All other TCP/UDP forwarding is ignored, including privileged ports.
+# Restart the project Colima profile to apply forwarding changes.
+cpu: 4
+memory: 8
+disk: 40
+runtime: docker
+autoActivate: true
+mountType: virtiofs
+mounts: []

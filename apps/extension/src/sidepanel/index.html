@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ThreadSignal reply studio</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./index.js"></script>
+  </head>
+  <body>
+    <header class="brand">
+      <span class="brand-mark" aria-hidden="true"><span></span></span>
+      <div><strong>ThreadSignal</strong><span class="brand-subtitle">REPLY STUDIO</span></div>
+      <span class="local-pill">Local</span>
+    </header>
+    <main>
+      <section class="intro" aria-labelledby="studio-title">
+        <p class="eyebrow">A useful reply. A human touch.</p>
+        <h1 id="studio-title">Bring the evidence.<br />Keep the conversation.</h1>
+        <p>Review your draft here. Publishing always stays in your hands.</p>
+      </section>
+      <p id="status" class="notice" role="status" aria-live="polite">Loading your connection…</p>
+      <section id="connection" class="card" aria-labelledby="connection-title">
+        <div class="section-heading">
+          <span class="step">01</span>
+          <h2 id="connection-title">Connect your workspace</h2>
+        </div>
+        <p>Create a one-time code in ThreadSignal’s integration settings, then enter it below.</p>
+        <a
+          class="text-link"
+          href="http://127.0.0.1:3000/app/settings/integrations"
+          target="_blank"
+          rel="noreferrer"
+          >Open integration settings ↗</a
+        >
+        <label for="connection-code">One-time connection code</label>
+        <input
+          id="connection-code"
+          type="password"
+          autocomplete="off"
+          spellcheck="false"
+          maxlength="128"
+          placeholder="Paste your connection code"
+        />
+        <button id="connect" type="button" class="primary">
+          Connect workspace <span aria-hidden="true">→</span>
+        </button>
+        <p class="fine-print">
+          The code expires shortly and can be used once. Your Reddit password is never needed.
+        </p>
+      </section>
+      <section id="connected" class="card connected-card" aria-labelledby="connected-title" hidden>
+        <div>
+          <span class="eyebrow">CONNECTED WORKSPACE</span>
+          <h2 id="connected-title">Your workspace</h2>
+          <p id="session-name"></p>
+        </div>
+        <button id="disconnect" type="button" class="quiet">Disconnect</button>
+      </section>
+      <section id="lookup" class="card" aria-labelledby="lookup-title" hidden>
+        <div class="section-heading">
+          <span class="step">02</span>
+          <h2 id="lookup-title">Find this conversation</h2>
+        </div>
+        <p>
+          Open a supported Reddit post or the local composer fixture. Click below when you are
+          ready.
+        </p>
+        <button id="refresh" type="button" class="secondary">Look up current tab</button>
+        <p class="fine-print">
+          Only this click reads the active tab’s URL. ThreadSignal never watches your browsing.
+        </p>
+      </section>
+      <section id="opportunity" class="card" aria-labelledby="post-title" hidden>
+        <div class="post-meta">
+          <span id="subreddit" class="eyebrow"></span><span id="score" class="score"></span>
+        </div>
+        <h2 id="post-title"></h2>
+        <p id="post-summary"></p>
+        <p id="risk" class="risk"></p>
+        <details>
+          <summary>Community guidance</summary>
+          <ul id="rules"></ul>
+        </details>
+        <a id="open-detail" class="text-link" target="_blank" rel="noreferrer"
+          >Open full opportunity ↗</a
+        >
+      </section>
+      <section id="draft" class="card draft-card" aria-labelledby="draft-title" hidden>
+        <div class="section-heading">
+          <span class="step">03</span>
+          <h2 id="draft-title">Make it your own</h2>
+          <span id="draft-state" class="state"></span>
+        </div>
+        <label for="draft-text">Reply draft</label>
+        <textarea id="draft-text" rows="12" maxlength="12000" spellcheck="true"></textarea>
+        <div class="editor-meta"><span id="word-count"></span><span id="version"></span></div>
+        <p id="approval-note" class="fine-print"></p>
+        <div class="button-row">
+          <button id="save" type="button" class="secondary">Save for verification</button
+          ><button id="discard" type="button" class="quiet">Discard local edits</button>
+        </div>
+        <a id="open-review" class="text-link" target="_blank" rel="noreferrer"
+          >Review and approve in ThreadSignal ↗</a
+        >
+        <details>
+          <summary>Evidence behind this draft</summary>
+          <ul id="evidence"></ul>
+        </details>
+        <details>
+          <summary>Compliance review</summary>
+          <ul id="checks"></ul>
+        </details>
+        <div class="handoff">
+          <button id="insert" type="button" class="primary">
+            Insert into comment box <span aria-hidden="true">↗</span>
+          </button>
+          <button id="copy" type="button" class="secondary">Copy approved draft</button>
+          <p>Review the text, then submit it yourself on Reddit.</p>
+        </div>
+        <details id="published-details">
+          <summary>Already published it yourself?</summary>
+          <p>
+            Record your manual action after you personally submit on Reddit. This does not publish
+            anything.
+          </p>
+          <label for="comment-url">Resulting Reddit comment URL</label
+          ><input
+            id="comment-url"
+            type="url"
+            autocomplete="off"
+            maxlength="2048"
+            placeholder="https://www.reddit.com/r/…/comments/…/…/comment-id/"
+          /><label class="checkbox"
+            ><input id="published-confirm" type="checkbox" />I personally published this
+            reply.</label
+          ><button id="published" type="button" class="secondary">I published this</button>
+        </details>
+      </section>
+      <section class="responsible-use" aria-labelledby="control-heading">
+        <span class="safety-mark" aria-hidden="true">✓</span>
+        <div>
+          <h2 id="control-heading">Your judgment is the final step.</h2>
+          <p>
+            Follow community rules, disclose your affiliation, and review every claim. ThreadSignal
+            cannot guarantee moderator acceptance.
+          </p>
+        </div>
+      </section>
+    </main>
+    <footer>
+      <span id="extension-version">ThreadSignal</span
+      ><span>Independent project · Not affiliated with Reddit</span>
+    </footer>
+  </body>
+</html>

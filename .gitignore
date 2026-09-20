@@ -4,6 +4,7 @@ node_modules/
 
 # Next.js
 .next/
+.next-hosted/
 out/
 
 # Build outputs
@@ -12,11 +13,7 @@ build/
 .turbo/
 
 # Environment files
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env*
 !.env.example
 
 # Testing
@@ -35,3 +32,8 @@ pnpm-debug.log*
 # Temporary files
 tmp/
 temp/
+
+# Isolated local tools, service state, and generated artifacts
+.threadsignal/
+.local/
+*.tsbuildinfo

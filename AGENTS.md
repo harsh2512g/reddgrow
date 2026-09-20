@@ -1,5 +1,40 @@
 # ThreadSignal Repository Instructions
 
+## Strict personal-project isolation
+
+ThreadSignal is an independent personal project. It must never use, inspect,
+modify, or depend on any Gofynd or office-owned resource.
+
+The coding agent must not:
+
+- Read or use existing office SSH keys, credentials, tokens, certificates,
+  browser sessions, Keychain entries, environment files, or secrets.
+- Read or use ~/.aws, ~/.azure, ~/.config/gcloud, ~/.kube, ~/.orbstack,
+  office Docker contexts, office npm configuration, or office cloud profiles.
+- Use Gofynd, Fynd, Pixelbin, or another employer account, email, domain,
+  repository, registry, VPN, API, database, infrastructure, or subscription.
+- Reuse any existing Supabase, OpenAI, Stripe, Vercel, Redis, Reddit,
+  monitoring, storage, or deployment key.
+- Run gh, aws, gcloud, az, kubectl, orb, or deployment/login commands unless
+  the user explicitly confirms that a new personal configuration is active.
+- inspect files outside this repository except standard public development
+  tools that the user has explicitly approved.
+
+Use only:
+
+- Project-local configuration
+- Newly created personal accounts
+- ThreadSignal-specific credentials
+- REDDIT_PROVIDER=mock
+- AI_PROVIDER=mock
+- EMAIL_PROVIDER=console
+- BILLING_PROVIDER=mock
+
+Before performing any login, deployment, cloud operation, credential
+creation, or external write, stop and ask for explicit confirmation.
+
+Never print, log, commit, or copy secret values.
+
 ## Source of truth
 
 - Read `threadsignal_master_build_spec.md` before making architectural or product changes.

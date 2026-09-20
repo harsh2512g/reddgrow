@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+THREADSIGNAL_NODE=$(command -v node)
+THREADSIGNAL_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+exec env -i PATH=/usr/bin:/bin "$THREADSIGNAL_NODE" "$THREADSIGNAL_ROOT/scripts/run-local.mjs" "$@"

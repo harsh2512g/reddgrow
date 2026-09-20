@@ -1,0 +1,37 @@
+{
+  "name": "@threadsignal/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node ../../scripts/worker.mjs dev",
+    "start": "node ../../scripts/worker.mjs start",
+    "build": "node scripts/build.mjs",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --root ../.. apps/worker/tests"
+  },
+  "dependencies": {
+    "@threadsignal/email": "workspace:*",
+    "@threadsignal/opportunities": "workspace:*",
+    "@threadsignal/reddit": "workspace:*",
+    "@threadsignal/knowledge": "workspace:*",
+    "@threadsignal/crawler": "workspace:*",
+    "@threadsignal/ai": "workspace:*",
+    "@threadsignal/config": "workspace:*",
+    "@threadsignal/shared": "workspace:*",
+    "bullmq": "6.3.4",
+    "ioredis": "6.0.0",
+    "pino": "10.3.1",
+    "postgres": "3.4.9",
+    "zod": "4.6.4",
+    "@threadsignal/drafts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.4",
+    "esbuild": "0.28.2",
+    "tsx": "4.23.13",
+    "typescript": "6.0.3",
+    "vitest": "4.1.11"
+  }
+}

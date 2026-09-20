@@ -1,0 +1,85 @@
+name: ThreadSignal quality
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Bootstrap isolated public-npm tooling
+        run: ./scripts/local bootstrap
+      - name: Install frozen workspace
+        run: ./scripts/local pnpm install --frozen-lockfile
+      - name: Dependency security audit
+        run: ./scripts/local pnpm audit --audit-level=high
+      - name: Lint
+        run: ./scripts/local pnpm lint
+      - name: Check formatting
+        run: ./scripts/local pnpm format:check
+      - name: Check types
+        run: ./scripts/local pnpm typecheck
+      - name: Unit and contract tests
+        run: ./scripts/local pnpm test
+      - name: Repository hygiene
+        run: ./scripts/local pnpm secrets:check
+      - name: Build all applications and extension
+        run: ./scripts/local pnpm build
+      - name: Install isolated Chromium
+        run: ./scripts/local pnpm exec playwright install chromium
+      - name: Browser smoke tests
+        run: ./scripts/local pnpm test:e2e
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-evidence
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+  local-services:
+    # Use only a separately provisioned personal Colima runner.
+    runs-on: [self-hosted, threadsignal-personal, colima]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Bootstrap and install
+        run: |
+          ./scripts/local bootstrap
+          ./scripts/local pnpm install --frozen-lockfile
+      - name: Build shared packages
+        run: ./scripts/local pnpm exec turbo run build --filter='./packages/*'
+      - name: Start project services
+        run: ./scripts/local pnpm services:start
+      - name: Validate migrations and seed
+        run: |
+          ./scripts/local pnpm db:reset
+          ./scripts/local pnpm seed
+          ./scripts/local pnpm db:lint
+      - name: Verify live services and worker
+        run: |
+          ./scripts/local pnpm services:health
+          ./scripts/local pnpm test:integration
+      - name: Build authenticated application
+        run: ./scripts/local pnpm build
+      - name: Install isolated Chromium
+        run: ./scripts/local pnpm exec playwright install chromium
+      - name: Authenticated browser journeys
+        run: ./scripts/local pnpm test:e2e
+      - name: Manual-only extension browser journey
+        run: ./scripts/local pnpm test:extension
+      - name: Stop project services
+        if: always()
+        run: ./scripts/local pnpm services:stop

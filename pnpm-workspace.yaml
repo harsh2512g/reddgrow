@@ -1,5 +1,15 @@
 packages:
-  - "apps/*"
-  - "packages/*"
+  - 'apps/*'
+  - 'packages/*'
+overrides:
+  react: 19.3.0
+  react-dom: 19.3.0
 allowBuilds:
-  unrs-resolver: set this to true or false
+  esbuild: true
+  msgpackr-extract: false
+  sharp: false
+  unrs-resolver: false
+minimumReleaseAgeExclude:
+  - tailwind-merge@3.7.0
+  - zod@4.6.4
+  - lucide-react@1.46.0

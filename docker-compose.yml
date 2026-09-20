@@ -1,0 +1,21 @@
+name: threadsignal
+services:
+  redis:
+    image: redis:8.2.1-alpine
+    # Container clients arrive through Docker NAT; host access is restricted by
+    # this loopback binding and the repository-owned Lima forwarding override.
+    command: ['redis-server', '--appendonly', 'yes', '--protected-mode', 'no']
+    ports:
+      - '127.0.0.1:56379:6379'
+    volumes:
+      - threadsignal-redis:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    security_opt:
+      - no-new-privileges:true
+    restart: 'no'
+volumes:
+  threadsignal-redis:

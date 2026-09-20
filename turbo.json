@@ -1,0 +1,71 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"],
+      "env": ["THREADSIGNAL_LOCAL", "NEXT_PUBLIC_APP_URL"]
+    },
+    "dev": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "persistent": true,
+      "passThroughEnv": [
+        "THREADSIGNAL_LOCAL",
+        "DATABASE_URL",
+        "REDIS_URL",
+        "WORKER_PORT",
+        "NEXT_PUBLIC_APP_URL",
+        "NEXT_PUBLIC_SUPABASE_URL",
+        "REDDIT_PROVIDER",
+        "AI_PROVIDER",
+        "EMAIL_PROVIDER",
+        "BILLING_PROVIDER",
+        "CRAWLER_PROVIDER"
+      ]
+    },
+    "typecheck": { "dependsOn": ["^build"], "outputs": [] }
+  },
+  "globalPassThroughEnv": [
+    "TMPDIR",
+    "TMP",
+    "TEMP",
+    "XDG_CONFIG_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_DATA_HOME",
+    "XDG_STATE_HOME",
+    "NPM_CONFIG_USERCONFIG",
+    "NPM_CONFIG_GLOBALCONFIG",
+    "NPM_CONFIG_REGISTRY",
+    "NPM_CONFIG_CACHE",
+    "npm_config_registry",
+    "npm_config_userconfig",
+    "npm_config_globalconfig",
+    "npm_config_cache",
+    "PNPM_HOME",
+    "COREPACK_HOME",
+    "COREPACK_ENABLE_PROJECT_SPEC",
+    "DOCKER_CONFIG",
+    "COLIMA_HOME",
+    "LIMA_HOME",
+    "PLAYWRIGHT_BROWSERS_PATH",
+    "TURBO_TELEMETRY_DISABLED",
+    "NEXT_TELEMETRY_DISABLED",
+    "DO_NOT_TRACK",
+    "THREADSIGNAL_LOCAL",
+    "THREADSIGNAL_SERVICES_READY",
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+    "THREADSIGNAL_SUPABASE_MODE",
+    "THREADSIGNAL_SUPABASE_PROJECT_REF",
+    "GOOGLE_AUTH_ENABLED",
+    "DATABASE_URL",
+    "REDIS_URL",
+    "REDDIT_PROVIDER",
+    "AI_PROVIDER",
+    "EMAIL_PROVIDER",
+    "BILLING_PROVIDER",
+    "CRAWLER_PROVIDER"
+  ]
+}

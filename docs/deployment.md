@@ -1,0 +1,48 @@
+# Deployment and provider activation
+
+This document is a release preparation guide. The current runtime targets local Supabase; executed checks and any pending gates are recorded in [Phase 8 verification](phase-8-verification.md). It must not be described as deployable production solely by setting environment variables. Supabase remains Auth, PostgreSQL/pgvector and private Storage. No deployment, login, hosted migration, external provider activation or account provisioning is authorized by this document.
+
+## Concrete prerequisites in this repository
+
+| Component          | Current boundary                                                                                                                       | Required work before hosted activation                                                                                                                                              |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Web/API            | `knowledge/server.ts` supports a separately verified Phase 2 profile; Phase 3–8 gates and restricted direct database bridges are local | Add an explicitly reviewed HTTPS project profile and narrow database roles, migrate and verify every required schema/RLS/RPC boundary; do not give browser code an admin credential |
+| Worker             | `apps/worker/src/config.ts` validates exact loopback endpoints; prepared hosted profile covers Phase 2                                 | Add TLS Redis and least-privilege hosted authority for later queues, privacy and billing; verify project identity and worker/web configuration binding                              |
+| Local launcher     | `scripts/isolation.mjs` forces mocks/console/fixture                                                                                   | Keep this launcher unchanged; implement a separate explicit deployment runtime, never reuse shell/cloud profiles                                                                    |
+| Provider factories | OAuth Reddit, AI, Stripe and Resend adapters have injected-transport tests; runtime gates remain off                                   | Select newly created personal credentials only after approval and verify real test-mode behavior                                                                                    |
+| Crawler            | `packages/crawler/src/index.ts` refuses simple/firecrawl                                                                               | Implement and test a real crawler with DNS/IP pinning, private/reserved network refusal, redirect revalidation, approved-domain limits, robots rules and bounded response/time      |
+| Extension          | Build and API origin are fixed to loopback                                                                                             | Produce a reviewed HTTPS manifest/profile/API origin and registered extension ID; rerun permission/no-submit tests and manual compatibility QA                                      |
+
+Changing a guard from local to true without the above work is not activation. Existing hosted bootstrap and Phase 2 catalog hashes must stay preserved; later migrations need schema/history reconciliation, not a blanket replay or reset.
+
+The updated Phase 2 knowledge worker also requires the reviewed additive operation `supabase/operations/phase2-worker-organization-guard.sql`, which matches local migration `20260923090000_knowledge_worker_organization_guard.sql`. It adds only the two worker-only eligibility/dispatch helpers; it does not grant organization table access, enable LOGIN or activate later phases. A new-role bootstrap includes this prerequisite. An existing hosted worker startup instead refuses missing helpers with `WORKER_ORGANIZATION_GUARD_REQUIRES_REVIEWED_ADDITIVE_OPERATION`; it never applies a cloud change automatically. Before restarting such a worker, obtain explicit authorization to apply that exact additive operation to the intended personal project, then verify its effective grants and startup checks. Do not replay the role bootstrap or grant broader table access as a workaround. This Phase 8 work did not execute the operation against hosted Supabase.
+
+## Web, worker, database and Redis rollout
+
+1. Obtain owner confirmation identifying the new personal Supabase project, hosting targets, registry and secret stores. Prepare reviewable account settings and migration plan before any external write.
+2. Complete the runtime prerequisites above. Target the declared Node 24 runtime and verify the pinned pnpm lockfile there. Build with the root `build` script; serve the Next application behind HTTPS with the exact `NEXT_PUBLIC_APP_URL`. Trust only the chosen reverse proxy's host/origin behavior.
+3. Review all migrations in order, take matching database and Storage backups, and test their restore into a separate authorized staging environment. Apply additive migrations using a dedicated migration identity. Generate types and compare schema/grants/RLS before switching traffic. Never run local seed/reset against a customer project.
+4. Run the compiled Node worker as a long-lived supervised process, separate from web requests. Configure graceful SIGTERM, bounded concurrency and a private health endpoint. The existing local worker start command intentionally checks local ownership; it is not a hosted entry point.
+5. Configure managed Redis with TLS, authentication, private access, persistence and `noeviction`; verify reconnect and stalled-job recovery. Preserve PostgreSQL outbox identities across worker restarts. BullMQ describes these operational requirements in its [production guide](https://docs.bullmq.io/guide/going-to-production).
+6. Configure Supabase Auth site/redirect URLs precisely, private Storage buckets, MFA for administrators and database network restrictions appropriate to the selected host. Review the current [Supabase production checklist](https://supabase.com/docs/guides/deployment/going-into-prod).
+7. Run every release gate, then stage limited traffic with all real social actions still manual. Verify TLS, cookie flags, nonce CSP, mobile/keyboard workflows, backup restore and externally delivered operational alerts before declaring launch readiness.
+
+## Environment ownership
+
+`.env.example` lists names without values. Public browser settings are the app URL, Supabase URL and public publishable/anon key only. Database credentials, Redis credentials, Supabase server Storage secrets, Stripe webhook/API secrets, AI and Resend keys belong in separate server/worker secret stores. Browser/extension bundles must contain none of them. Never paste secrets into chat, a command argument, logs or tracked files. Rotation must include revocation of the previous credential and a safe readiness check.
+
+The web request database roles must not own tables or bypass RLS. The worker gets only the authority needed for its queues/Storage paths. The migration identity is neither the web nor worker identity. Keep provider-specific validation conditional; mocked providers never require real secrets.
+
+## Authorized Stripe test and email verification
+
+Once the runtime and migrations are approved, use a new personal Stripe test configuration. Configure active USD monthly Solo/Growth prices at $29/$79 and the portal's permitted plans; the adapter pins API version `2026-08-26.dahlia`. Configure `/api/billing/webhook` to receive the supported subscription/Checkout/invoice events with a newly provided signing secret. Do not activate a plan from a browser success URL. Verify checkout, payment failure/recovery, renewal, cancellation, duplicate and out-of-order signed events against Supabase usage limits. See [billing development](phase-7-development.md). No real card charge was verified here.
+
+For Resend, configure a newly authorized personal sending domain and `EMAIL_FROM`, then test category opt-outs, quiet hours, duplicate retries and provider acceptance using only approved test recipients. Delivery acceptance does not prove inbox delivery. Never use customer addresses to test a newly enabled provider.
+
+## Approved Reddit and AI
+
+Reddit activation requires approved intended/commercial API access, truthful descriptive User-Agent, new personal app credentials, `REDDIT_COMMERCIAL_APPROVAL_CONFIRMED=true`, reviewed current platform terms and OAuth rather than scraping. Test rate-limit handling, authorization pause and twelve-hour refresh/forty-eight-hour deletion deadlines before ingestion. The extension still cannot submit. Missing approval means remain in mock mode.
+
+AI activation needs configured fast/smart/embedding model identifiers, compatible 512-dimensional embeddings, explicit cost rates, provider data-processing review and bounded retries. A changed embedding model requires a controlled re-embedding strategy, not mixing incompatible vectors. Test claim/provenance/disclosure and deletion after activation; provider success must never automatically approve or publish a draft.
+
+Rollback first pauses affected ingestion/mutations and preserves deletion fences. Prefer a forward corrective migration; destructive reverse migrations need a separately reviewed recovery plan. Use [release checklist](release-checklist.md) and [backup/restore](backup-restore.md). HTTPS staging, live providers, remote CI, Node 24 and Chrome Web Store submission remain unverified external steps.
