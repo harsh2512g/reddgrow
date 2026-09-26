@@ -31,10 +31,12 @@ Use the following settings for the personal Vercel project:
 | Environment variable                        | `ENABLE_EXPERIMENTAL_COREPACK=1`, for the pinned `pnpm@12.4.1`                                                                                   |
 | System environment variables                | Enable access so Vercel supplies its build markers                                                                                               |
 | Install Command                             | Use checked-in `apps/web/vercel.json`: `cd ../.. && corepack pnpm install --frozen-lockfile --prod=false --registry=https://registry.npmjs.org/` |
-| Build Command                               | Use checked-in configuration: `cd ../.. && corepack pnpm build:web`                                                                              |
+| Build Command                               | Use checked-in configuration: `cd ../.. && pnpm --version && pnpm build:web`                                                                     |
 | Output Directory                            | Framework default (`.next` under `apps/web`); no override                                                                                        |
 
 `build:web` builds the web workspace and its dependencies in topological order through pnpm. It preserves hosting-provided environment variables rather than passing the Next build through the local launcher or Turbo's local environment filter/cache. It excludes the extension and worker applications. Next's file tracing includes the repository root so deployed server functions can include shared compiled packages.
+
+The build calls the environment's `pnpm` directly and logs its version first. The owner reported that installation completed with 12.4.1, but explicitly invoking Corepack again for the build selected 12.2.1 and failed with `ERR_PNPM_BAD_PM_VERSION`. Keep `packageManager: pnpm@12.4.1` in both manifests and retain the working install command; do not ignore or downgrade the version check. The new build log should show `12.4.1` before compilation. If a dashboard Build Command override still contains `corepack pnpm build:web`, remove that override or set it to the checked-in command above. Keep the Root Directory at `apps/web`.
 
 Do not set `THREADSIGNAL_LOCAL=1` or use `./scripts/local` in Vercel as a workaround. The launcher intentionally replaces inherited credentials, app URLs and provider choices with isolated local values. Do not disable lifecycle scripts to skip the guard. No Supabase migration, provider activation or worker deployment occurs during dependency installation or web compilation.
 
@@ -64,6 +66,16 @@ The first browser command exited 1 before running tests because a leftover repos
 Final `pnpm format:check` and `pnpm secrets:check` both exited 0; hygiene checked 756 repository text files. Development web and worker were restored with `./scripts/local pnpm dev`; the homepage, web readiness and worker readiness each returned HTTP 200.
 
 Full database integration and extension suites were not rerun for this install/build-only change; their previous release evidence remains historical. Hosted runtime, Node 24, real providers and remote CI remain unverified. No commit or push is part of this fix. Ignored execution logs are under `.threadsignal/vercel-fix-*.log`.
+
+### pnpm build selection follow-up — 2026-09-26
+
+The only executable configuration change is removal of the explicit Corepack build invocation and addition of the version diagnostic. Both `packageManager` pins, the lockfile, install command and strict checks remain unchanged. This addresses the owner's reported 12.2.1/12.4.1 mismatch; that remote mismatch was not independently reproduced.
+
+Executed the literal `buildCommand` read from `apps/web/vercel.json` with `/bin/sh -c`, starting in `apps/web`, under `./scripts/local pnpm exec node`'s isolated mock environment. It printed **12.4.1** and exited **0** after all **16 web/dependency builds**. `./scripts/local pnpm lint`, `./scripts/local pnpm format:check`, and `./scripts/local pnpm exec vitest run tests/tooling/install-policy.test.ts tests/tooling/isolation.test.ts` also exited **0** (**21 tests across 2 files**). The local dev process was intentionally stopped for the build; subsequent process lookups returned no matching process. Discovery of two older CLI paths found no files; the actual package-local pnpm executable was used successfully.
+
+`pnpm secrets:check` exited 0 across 756 repository text files. Development web and worker were restored, and the homepage plus both readiness endpoints returned HTTP 200.
+
+No new dependency was installed, version enforcement bypassed or cloud setting changed. The full unit/integration/browser/extension suites and standalone typecheck were not rerun for this command-only follow-up; earlier counts above remain historical. Local build success does not prove Vercel's PATH or runtime. Push the changed configuration and redeploy; verify that the new build-command line and `12.4.1` appear before compilation. Ignored follow-up logs are `.threadsignal/vercel-pnpm-*.log`.
 
 ## Separate runtime configuration
 
