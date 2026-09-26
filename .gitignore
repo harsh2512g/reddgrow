@@ -40,4 +40,5 @@ temp/
 .audit/
 .lima/
 .colima/
+.vercel/
 *.tsbuildinfo

@@ -1,6 +1,9 @@
 import type { NextConfig } from 'next';
+import { fileURLToPath } from 'node:url';
 
 const nextConfig: NextConfig = {
+  // Server functions import compiled packages from the repository workspace.
+  outputFileTracingRoot: fileURLToPath(new URL('../../', import.meta.url)),
   // Separate generated output allows the local and personal hosted profiles to run together.
   distDir:
     process.env.THREADSIGNAL_SUPABASE_MODE === 'personal-development' ? '.next-hosted' : '.next',

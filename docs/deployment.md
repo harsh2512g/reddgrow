@@ -16,6 +16,55 @@ This is a release preparation guide, not authorization to create accounts, migra
 
 The deployment profile is not enabled by a boolean alone: the full environment contract and PostgreSQL authority checks must pass. Existing hosted bootstrap and Phase 2 catalog hashes stay preserved. Later migrations require schema/history reconciliation, not blanket replay or reset. The role operation is tested in rollback-only local transactions and has not been executed on hosted Supabase.
 
+## Vercel web build settings
+
+The initial Vercel deployment stopped at `scripts/check-install.mjs` because the guard accepted only the local launcher. The guard now also accepts Vercel build markers (`VERCEL=1`, `CI=1`, `VERCEL_ENV=preview` or `production`), while refusing a mixed local/Vercel environment and non-public npm registry overrides. These markers select the install policy; they are not credentials or runtime authorization.
+
+Use the following settings for the personal Vercel project:
+
+| Setting                                     | Value                                                                                                                                            |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Framework Preset                            | Next.js                                                                                                                                          |
+| Root Directory                              | `apps/web`                                                                                                                                       |
+| Include source files outside Root Directory | Enabled, so shared workspace packages are available                                                                                              |
+| Node.js version                             | 24.x                                                                                                                                             |
+| Environment variable                        | `ENABLE_EXPERIMENTAL_COREPACK=1`, for the pinned `pnpm@12.4.1`                                                                                   |
+| System environment variables                | Enable access so Vercel supplies its build markers                                                                                               |
+| Install Command                             | Use checked-in `apps/web/vercel.json`: `cd ../.. && corepack pnpm install --frozen-lockfile --prod=false --registry=https://registry.npmjs.org/` |
+| Build Command                               | Use checked-in configuration: `cd ../.. && corepack pnpm build:web`                                                                              |
+| Output Directory                            | Framework default (`.next` under `apps/web`); no override                                                                                        |
+
+`build:web` builds the web workspace and its dependencies in topological order through pnpm. It preserves hosting-provided environment variables rather than passing the Next build through the local launcher or Turbo's local environment filter/cache. It excludes the extension and worker applications. Next's file tracing includes the repository root so deployed server functions can include shared compiled packages.
+
+Do not set `THREADSIGNAL_LOCAL=1` or use `./scripts/local` in Vercel as a workaround. The launcher intentionally replaces inherited credentials, app URLs and provider choices with isolated local values. Do not disable lifecycle scripts to skip the guard. No Supabase migration, provider activation or worker deployment occurs during dependency installation or web compilation.
+
+The install/build fix does not configure hosted runtime services. Before accepting traffic, supply the validated **web deployment profile** described below, including the restricted web database role, database CA and managed TLS Redis. A Supabase URL and publishable key alone are insufficient for this application's full hosted runtime. The existing `personal-development` profile is pinned to `http://localhost:3002` and is not a Vercel profile. Keep Reddit/AI/billing mocked, email console and crawling fixtures while provisioning is incomplete. Run the worker separately as the long-lived service described below; the Vercel web build does not start it.
+
+Official references checked for this fix: [Vercel build settings and Corepack](https://vercel.com/docs/builds/configure-a-build), [system environment variables](https://vercel.com/docs/environment-variables/system-environment-variables), and [shared monorepo sources](https://vercel.com/docs/monorepos/monorepo-faq). Hosted installation, deployed HTTPS/Auth and runtime services still require verification on the owner's Vercel project.
+
+### Local verification of the install fix — 2026-09-26
+
+Checks use `./scripts/local` and the existing project-owned Supabase/Redis services. Local Node is 25.2.1; the owner's reported Vercel Node 24.21.0 environment has not been reproduced remotely. No hosted credentials, migrations, login or deployment were used.
+
+| Command or check                                                                                                                                                     | Result                                                                                                                                       |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pinned pnpm `install --frozen-lockfile --offline --prod=false --registry=https://registry.npmjs.org/`, with only simulated Vercel markers and the local flag removed | Exit 0; all 19 workspaces, unchanged lockfile, zero downloads. Reused the existing public-npm cache; this is not a fresh cloud installation. |
+| Pinned pnpm `run preinstall` in the same isolated simulated Vercel environment                                                                                       | Exit 0. Run explicitly because the cached install did not rerun its lifecycle.                                                               |
+| `pnpm exec vitest run tests/tooling/install-policy.test.ts tests/tooling/isolation.test.ts`                                                                          | Exit 0; 21 tests across 2 files, including 15 install-policy cases.                                                                          |
+| `pnpm lint`                                                                                                                                                          | Exit 0.                                                                                                                                      |
+| `pnpm typecheck`                                                                                                                                                     | Exit 0; 33 tasks plus tooling TypeScript.                                                                                                    |
+| `pnpm test`                                                                                                                                                          | Exit 0; 1,506 tests across 105 files.                                                                                                        |
+| `pnpm build`                                                                                                                                                         | Exit 0; 18 tasks.                                                                                                                            |
+| `pnpm build:web`                                                                                                                                                     | Exit 0; 16 workspace builds. Repeated successfully after stopping the leftover dev server, before browser verification.                      |
+| `pnpm test:e2e apps/web/tests/e2e/shell.spec.ts apps/web/tests/e2e/accessibility.spec.ts`                                                                            | Final exit 0; 16 desktop/mobile tests, no skips, in 33.9 seconds.                                                                            |
+| Generated Next output inspection                                                                                                                                     | Exit 0; repository tracing root, bundled shared deployment validation, 137 trace files and zero references to private repository state.      |
+
+The first browser command exited 1 before running tests because a leftover repository Next dev process held port 3000. Its repository ownership was verified before stopping it and rebuilding. Two early artifact probes also exited 1: one incorrectly expected raw shared-package paths even though Next bundles that code, and the other compared a directory path without normalizing its trailing slash. Corrected checks verified the generated configuration and bundled code; no product guard was relaxed. Shell discovery also encountered two absent guessed paths and a sandbox denial for a narrowly scoped `ps`; the correct paths and approved inspection of the known repository process resolved those checks.
+
+Final `pnpm format:check` and `pnpm secrets:check` both exited 0; hygiene checked 756 repository text files. Development web and worker were restored with `./scripts/local pnpm dev`; the homepage, web readiness and worker readiness each returned HTTP 200.
+
+Full database integration and extension suites were not rerun for this install/build-only change; their previous release evidence remains historical. Hosted runtime, Node 24, real providers and remote CI remain unverified. No commit or push is part of this fix. Ignored execution logs are under `.threadsignal/vercel-fix-*.log`.
+
 ## Separate runtime configuration
 
 Use `THREADSIGNAL_SUPABASE_MODE=deployment`, `THREADSIGNAL_DEPLOYMENT_APPROVED=true`, `NODE_ENV=production`, and `THREADSIGNAL_RUNTIME_ROLE=web` or `worker`. The worker additionally requires `THREADSIGNAL_WORKER_MODE=deployment`. Do not set `THREADSIGNAL_LOCAL`; it cannot be combined with this profile. Keep all five provider modes at their documented defaults until each real provider has separate approval.
@@ -26,7 +75,7 @@ Web uses only the public Supabase publishable key and `EXTENSION_ALLOWED_ORIGINS
 
 After the operation's preflight and privilege review, an authorized administrator can enable LOGIN and configure a newly generated credential for each existing runtime role. Do not grant administrator membership or inherited bridge privileges. On every startup the application checks catalog identity, role flags, ownership, memberships, table/column access and helper execution. Unexpected authority stops startup.
 
-Build in an isolated approved environment with the pinned lockfile and `./scripts/local pnpm build`. Runtime secrets are injected by the separately authorized hosting secret store, never build arguments, source control or browser settings. The following are process entry points, not deployment commands executed by this audit:
+Use `./scripts/local pnpm build` only for the isolated local demo. Hosted web builds use the pinned package manager and `pnpm build:web` with the separately approved hosting environment; Vercel settings are above. Supply required server configuration through the hosting environment store at build/runtime as needed by Next's validation, never build arguments, source control or browser settings. The following are process entry points, not deployment commands executed by this audit:
 
 ```bash
 # Web: run with the validated web runtime environment, from apps/web.
@@ -42,7 +91,7 @@ The updated Phase 2 knowledge worker also requires the reviewed additive operati
 ## Web, worker, database and Redis rollout
 
 1. Obtain owner confirmation identifying the new personal Supabase project, hosting targets, registry and secret stores. Prepare reviewable account settings and migration plan before any external write.
-2. Provision and verify the runtime prerequisites above. Target the declared Node 24 runtime and verify the pinned pnpm lockfile there. Build with the root `build` script; serve the Next application behind HTTPS with the exact `NEXT_PUBLIC_APP_URL`. Trust only the chosen reverse proxy's host/origin behavior.
+2. Provision and verify the runtime prerequisites above. Target the declared Node 24 runtime and verify the pinned pnpm lockfile there. Build the web application with `pnpm build:web` using the hosting environment; serve it behind HTTPS with the exact `NEXT_PUBLIC_APP_URL`. Build the worker separately with its dependencies and validated worker environment. Trust only the chosen reverse proxy's host/origin behavior.
 3. Review all migrations in order, take matching database and Storage backups, and test their restore into a separate authorized staging environment. Apply additive migrations using a dedicated migration identity. Generate types and compare schema/grants/RLS before switching traffic. Never run local seed/reset against a customer project.
 4. Run the compiled Node worker as a long-lived supervised process, separate from web requests. Configure graceful SIGTERM, bounded concurrency and a private health endpoint. The existing local worker start command intentionally checks local ownership; it is not a hosted entry point.
 5. Configure managed Redis with TLS, authentication, private access, persistence and `noeviction`; verify reconnect and stalled-job recovery. Preserve PostgreSQL outbox identities across worker restarts. BullMQ describes these operational requirements in its [production guide](https://docs.bullmq.io/guide/going-to-production).

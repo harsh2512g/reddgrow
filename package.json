@@ -19,6 +19,7 @@
     "worker:provision:hosted": "node scripts/hosted-worker.mjs provision",
     "worker:hosted": "node scripts/hosted-worker.mjs start",
     "build": "turbo run build",
+    "build:web": "pnpm --filter @threadsignal/web... --recursive run build",
     "lint": "eslint . && pnpm --filter @threadsignal/web lint",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
