@@ -1,10 +1,14 @@
 import 'server-only';
+import { runtimeDatabaseOptions } from '../env/runtime';
+import { getServerEnv } from '../env/server';
 import postgres from 'postgres';
 import { z } from 'zod';
 import { localOpportunitiesEnabled } from '../phase3/server';
 import { BillingError } from './errors';
 
 export const billingStatements = {
+  recordAIUsage:
+    'select private.record_ai_usage($1::uuid,$2::uuid,$3::uuid,$4::text,$5::text::jsonb) as value',
   completeMock: 'select public.complete_mock_checkout($1::uuid,$2::uuid) as value',
   manageMock: 'select public.manage_mock_subscription($1::uuid,$2::text) as value',
   registerSession:
@@ -14,19 +18,9 @@ export const billingStatements = {
 let client: ReturnType<typeof postgres> | undefined;
 function database() {
   if (!localOpportunitiesEnabled()) throw new BillingError('LOCAL_ONLY', 503);
-  const raw = process.env.DATABASE_URL;
-  if (!raw) throw new BillingError('UNAVAILABLE', 503);
-  const url = new URL(raw);
-  if (
-    !['postgres:', 'postgresql:'].includes(url.protocol) ||
-    url.hostname !== '127.0.0.1' ||
-    url.port !== '54322' ||
-    url.pathname !== '/postgres' ||
-    url.search ||
-    url.hash
-  )
-    throw new BillingError('LOCAL_ONLY', 503);
-  return (client ??= postgres(raw, {
+  const connection = runtimeDatabaseOptions(getServerEnv());
+  return (client ??= postgres({
+    ...connection,
     max: 4,
     connect_timeout: 2,
     idle_timeout: 10,

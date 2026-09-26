@@ -1,7 +1,10 @@
 import 'server-only';
+import { withWebAIUsage } from '../env/ai-usage';
+import { providerEmbeddingIdentity } from '@threadsignal/ai';
 import { notFound } from 'next/navigation';
 import { z } from 'zod';
-import { createAIProvider } from '@threadsignal/ai';
+import { configuredAIProvider } from '../env/providers';
+import { deploymentRuntime } from '../env/runtime';
 import {
   brandSchema,
   sourceSchema,
@@ -13,6 +16,7 @@ import { requireOrganization } from '@/lib/organizations/server';
 import { getServerEnv } from '@/lib/env/server';
 
 export function localKnowledgeEnabled() {
+  if (deploymentRuntime(getServerEnv())) return true;
   // Both profiles run on this machine. Hosted access is enabled only by the dedicated launcher
   // after it verifies the selected project's schema and its separate worker's readiness.
   if (process.env.THREADSIGNAL_LOCAL !== '1' || process.env.THREADSIGNAL_SERVICES_READY !== '1')
@@ -108,15 +112,25 @@ export async function searchKnowledge(brandId: string, query: string) {
   const { brand, organization, localEnabled } = await loadBrand(brandId);
   if (!localEnabled || !brand) return [];
   const validated = z.string().trim().min(1).max(500).parse(query);
-  const { supabase } = await requireOrganization(organization.id);
-  const [embedding] = await createAIProvider('mock').embed({
-    texts: [validated],
-    dimensions: EMBEDDING_DIMENSIONS,
-  });
+  const { supabase, user } = await requireOrganization(organization.id);
+  const provider = configuredAIProvider();
+  const [embedding] = await withWebAIUsage(
+    { organizationId: organization.id, brandId: brand.id, userId: user.id },
+    'knowledge.search',
+    provider,
+    () =>
+      provider.embed({
+        texts: [validated],
+        dimensions: EMBEDDING_DIMENSIONS,
+      }),
+  );
   const result = await supabase.rpc('search_knowledge', {
     p_brand_id: brand.id,
     p_embedding: JSON.stringify(embedding),
     p_query: validated,
+    ...(getServerEnv().THREADSIGNAL_SUPABASE_MODE === 'personal-development'
+      ? {}
+      : { p_embedding_identity: providerEmbeddingIdentity(provider) }),
   });
   if (result.error) throw new Error('Knowledge search could not be completed.');
   return z.array(searchResultSchema).parse(result.data);

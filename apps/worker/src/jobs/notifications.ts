@@ -3,8 +3,9 @@ import { Queue, Worker } from 'bullmq';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { createLogger, createObservability } from '@threadsignal/shared';
-import { createEmailProvider, renderNotification, type EmailProvider } from '@threadsignal/email';
+import { renderNotification, type EmailProvider } from '@threadsignal/email';
 import type { WorkerConfig } from '../config';
+import { createWorkerEmail } from '../providers';
 
 const payloadSchema = z.object({
   count: z.number().int().nonnegative().optional(),
@@ -37,7 +38,12 @@ const deliverySchema = z.object({
 });
 
 /** SQL owns eligibility, leases, and retries. Queue data contains only a durable delivery ID. */
-export async function processNotification(sql: Sql, id: string, provider: EmailProvider) {
+export async function processNotification(
+  sql: Sql,
+  id: string,
+  provider: EmailProvider,
+  appOrigin = 'http://127.0.0.1:3000',
+) {
   z.uuid().parse(id);
   const lease = randomUUID();
   const [row] = await sql`select private.claim_notification(${id}::uuid,${lease}::uuid) as value`;
@@ -47,7 +53,7 @@ export async function processNotification(sql: Sql, id: string, provider: EmailP
     const template = renderNotification({
       category: delivery.type,
       organizationName: delivery.organization_name,
-      appUrl: 'http://127.0.0.1:3000',
+      appUrl: appOrigin,
       ...(delivery.payload.count !== undefined ? { count: delivery.payload.count } : {}),
       ...(delivery.payload.score !== undefined ? { score: delivery.payload.score } : {}),
       actionPath:
@@ -80,10 +86,11 @@ export async function processNotification(sql: Sql, id: string, provider: EmailP
 }
 
 export async function startNotificationWorker(sql: Sql, config: WorkerConfig) {
-  if (config.mode !== 'local') throw new Error('Verified Supabase development runtime required.');
+  if (config.mode !== 'local' && config.mode !== 'deployment')
+    throw new Error('Verified Supabase development runtime required.');
   const logger = createLogger({ service: 'notifications', level: config.logLevel });
   const observability = createObservability({});
-  const provider = createEmailProvider('console', logger);
+  const provider = createWorkerEmail(config, logger);
   const connection = { ...config.redis, maxRetriesPerRequest: null, connectTimeout: 2000 };
   const queue = new Queue('notifications', {
     connection,
@@ -107,7 +114,7 @@ export async function startNotificationWorker(sql: Sql, config: WorkerConfig) {
         'worker.notification',
         { jobId: job.id ?? 'unassigned' },
         async () => {
-          const result = await processNotification(sql, id, provider);
+          const result = await processNotification(sql, id, provider, config.appOrigin);
           logger.info(
             { event: 'notification_processed', jobId: job.id, ...result },
             'Notification delivery attempt completed.',

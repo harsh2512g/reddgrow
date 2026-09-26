@@ -1,4 +1,6 @@
 import 'server-only';
+import { runtimeDatabaseOptions } from '../env/runtime';
+import { getServerEnv } from '../env/server';
 import postgres from 'postgres';
 import { attributionEnabled } from './server';
 import { AttributionError } from './errors';
@@ -10,19 +12,9 @@ export async function attributionDatabase(
   args: (string | number | boolean | null)[],
 ): Promise<unknown> {
   if (!attributionEnabled()) throw new AttributionError('LOCAL_ONLY', 503);
-  const raw = process.env.DATABASE_URL;
-  if (!raw) throw new AttributionError('UNAVAILABLE', 503);
-  const url = new URL(raw);
-  if (
-    !['postgres:', 'postgresql:'].includes(url.protocol) ||
-    url.hostname !== '127.0.0.1' ||
-    url.port !== '54322' ||
-    url.pathname !== '/postgres' ||
-    url.search ||
-    url.hash
-  )
-    throw new AttributionError('LOCAL_ONLY', 503);
-  client ??= postgres(raw, {
+  const connection = runtimeDatabaseOptions(getServerEnv());
+  client ??= postgres({
+    ...connection,
     max: 4,
     connect_timeout: 2,
     idle_timeout: 10,

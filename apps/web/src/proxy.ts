@@ -18,7 +18,10 @@ export async function proxy(request: NextRequest) {
   const response = sessionPath
     ? await refreshSession(request)
     : NextResponse.next({ request: { headers: request.headers } });
-  response.headers.set('x-request-id', security.requestId);
+  // JSON/redirect handlers create their own response correlation ID alongside their body.
+  // Do not overwrite it with the separate ingress ID forwarded above.
+  if (!/^\/(?:api|go)(?:\/|$)/.test(pathname))
+    response.headers.set('x-request-id', security.requestId);
   if (!/^\/(?:api|auth|go)(?:\/|$)/.test(pathname)) {
     response.headers.set('Content-Security-Policy', security.policy);
     response.headers.set('Cache-Control', 'private, no-store, max-age=0');

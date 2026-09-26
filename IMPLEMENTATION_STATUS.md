@@ -2,28 +2,35 @@
 
 ## Current state
 
-- Current phase: 8 — hardening implemented and ready for local review after the owner’s next-phase request. All executed local quality gates pass; clean reset/restore and production activation remain open. Supabase remains the database/Auth/storage backend. Phase 7 local acceptance is preserved; live providers and hosted activation remain unverified.
-- Last verified phase: Phase 8 local regression and runtime gates (without whole-database reset/restore). The historical Phase 0 isolation exception remains open for owner review.
-- Active branch: main; no commit or push created.
+- Current step: 14 — source release preparation, commit and GitHub publication explicitly requested by the owner. Changelog/version alignment and all required local release checks pass; the reviewed source is prepared for the authorized commit. GitHub publication requires repository write access because the connector reports read-only permissions. Step 13 fixes passed all required local gates; the rendering diagnostic and external acceptance remain open. Supabase remains the database/Auth/storage backend. No roadmap feature or deployment is started. See [release record](docs/step-14-release.md) and [Step 13 findings and evidence](docs/step-13-review.md).
+- Last verified phase: Phase 8 plus Step 12 audit and Step 13 review local gates. Step 12 verified disposable reset/seed; Step 13 applied an additive migration without resetting existing data. The historical Phase 0 isolation exception remains open for owner review.
+- Active branch: main; release baseline `eaf24a7` (`feat: implement ThreadSignal workflows and Phase 8 hardening`). The owner authorized a release commit and push; no release tag or hosted deployment is authorized by this source release.
 - Local providers: Reddit `mock`, AI `mock`, email `console`, billing `mock`, crawler `fixture`.
-- Last updated: 2026-09-19.
+- Last updated: 2026-09-26.
+- Current review evidence: [Step 13 verification and failure ledger](docs/step-13-review.md), [specification matrix](SPEC_COMPLIANCE_MATRIX.md). The [Step 12 audit ledger](docs/audit-verification.md) and [delivery guide](docs/final-delivery.md) describe the earlier audit; phase counts below are historical.
 - Review evidence: [Phase 8 verification](docs/phase-8-verification.md), [Phase 8 file map](docs/phase-8-files.md), [Phase 8 development](docs/phase-8-development.md), [Phase 7 verification](docs/phase-7-verification.md), [changed files](docs/phase-7-files.md), [billing guide](docs/phase-7-development.md), the preserved [Phase 6 verification](docs/phase-6-verification.md), and [Phase 0 isolation record](docs/phase-0-verification.md).
-- Local app address: `http://127.0.0.1:3000`; development web and worker are running. Homepage, web readiness and worker readiness returned HTTP 200 after final Phase 8 verification; database, Redis and all worker subsystems are ready. This phase uses local Supabase; the personal hosted project was not changed or live-tested.
+- Local app address: `http://127.0.0.1:3000`; development web and worker are running again. Release restoration checks returned HTTP 200 for the homepage, web readiness and worker readiness. The personal hosted project is unchanged.
 - Hosted follow-up (previously verified; not rechecked in Phase 8): the owner reported successful sign-in. The Phase 2 database migration was committed to PostgreSQL, with an independent read-back matching the verified local schema and permissions. Phase 1 schema remained unchanged and hosted Auth returned HTTP 200. Hosted worker processing and the hosted Phase 2 application gate remain disabled. See [hosted migration evidence](docs/phase-2-hosted-migration.md).
 
 ## Phase status
 
-| Phase | Scope                                | Status                                | Acceptance verified                                                         | Commit |
-| ----- | ------------------------------------ | ------------------------------------- | --------------------------------------------------------------------------- | ------ |
-| 0     | Repository foundation                | Implemented; isolation review pending | Functional gates passed; exception open                                     | —      |
-| 1     | Auth, organization, billing skeleton | Implemented; ready for local review   | Local acceptance passed; external OAuth unverified                          | —      |
-| 2     | Brand and knowledge base             | Implemented; ready for local review   | Local acceptance passed; hosted processing disabled                         | —      |
-| 3     | Subreddit and opportunity pipeline   | Implemented; ready for local review   | Local acceptance passed; hosted Phase 3 disabled                            | —      |
-| 4     | AI drafting and verification         | Implemented; ready for local review   | Local acceptance passed; hosted Phase 4 disabled                            | —      |
-| 5     | Chrome extension product features    | Implemented; ready for local review   | Local fixture acceptance passed; live Reddit unverified                     | —      |
-| 6     | Attribution and analytics            | Implemented; ready for local review   | Local acceptance passed; hosted Phase 6 disabled                            | —      |
-| 7     | Real billing and notifications       | Implemented; ready for local review   | Local acceptance passed; live Stripe/Resend unverified                      | —      |
-| 8     | Hardening and launch readiness       | Implemented; ready for local review   | Local gates passed; clean reset/restore and hosted launch remain unverified | —      |
+Step 14 aligns all 20 package/extension manifests to `0.1.0` and adds the changelog/release record. Fresh release checks pass: **1,491 unit tests**, 33 typecheck tasks plus tooling, 18 build tasks, lint/format, extension build and **one MV3 test with zero submit attempts**. Step 13's 268 integration and 38 browser passes remain evidence for unchanged runtime code/schema; they are not claimed as rerun by this metadata/tooling step. No release tag or hosted activation is included.
+
+Step 13 passes **1,490 unit tests**, **268 integration tests**, **38 browser tests with two intentional duplicate mobile skips**, **one MV3 test with zero submit attempts**, lint/format, 33 typecheck tasks plus tooling, 18 build tasks, extension build, local database lint and source hygiene. Development web and worker are restored; all three HTTP checks returned 200. The additive draft-attempt accounting migration was applied without resetting existing data. Earlier port-conflict/typecheck/build failures were resolved and are recorded in the review ledger. Two non-failing render-stream diagnostics remain open; no hosted or production acceptance is claimed.
+
+Historical Step 12 audit gates passed on its disposable source snapshot: **1,468 unit tests**, **266 integration tests**, **38 browser tests with two intentional duplicate mobile skips**, **one MV3 test**, lint/format, 33 typecheck tasks plus tooling, 18 build tasks, extension build, source hygiene, fresh reset/seed/database lint and all three development HTTP 200 checks. The final clean-room command exited 0 and restored the original services without resetting their data. Six additive local migrations cover workflow excerpts/status, actual AI receipts/unknown metrics, embedding identity, invitation retention and general task accounting. Failed setup/browser attempts and the two non-failing render-stream diagnostics are recorded in the audit verification report. This establishes local review evidence, not hosted or production acceptance.
+
+| Phase | Scope                                | Status                                | Acceptance verified                                                    | Commit |
+| ----- | ------------------------------------ | ------------------------------------- | ---------------------------------------------------------------------- | ------ |
+| 0     | Repository foundation                | Implemented; isolation review pending | Functional gates passed; exception open                                | —      |
+| 1     | Auth, organization, billing skeleton | Implemented; ready for local review   | Local acceptance passed; external OAuth unverified                     | —      |
+| 2     | Brand and knowledge base             | Implemented; ready for local review   | Local acceptance passed; hosted processing disabled                    | —      |
+| 3     | Subreddit and opportunity pipeline   | Implemented; ready for local review   | Local acceptance passed; hosted Phase 3 disabled                       | —      |
+| 4     | AI drafting and verification         | Implemented; ready for local review   | Local acceptance passed; hosted Phase 4 disabled                       | —      |
+| 5     | Chrome extension product features    | Implemented; ready for local review   | Local fixture acceptance passed; live Reddit unverified                | —      |
+| 6     | Attribution and analytics            | Implemented; ready for local review   | Local acceptance passed; hosted Phase 6 disabled                       | —      |
+| 7     | Real billing and notifications       | Implemented; ready for local review   | Local acceptance passed; live Stripe/Resend unverified                 | —      |
+| 8     | Hardening and launch readiness       | Implemented; ready for local review   | Local gates and fresh-stack rehearsal passed; hosted launch unverified | —      |
 
 ## Phase 0 acceptance checklist
 
@@ -179,8 +186,17 @@ Supabase remains the Auth/PostgreSQL/private-storage backend. Ten additive local
 - [x] Lint, 33 typecheck tasks/tooling, 1,132 unit tests, 245 integration tests, 18 build tasks, extension build and final database lint pass.
 - [x] Public-npm audits show zero advisories; hygiene checks pass across 678 repository text files.
 - [x] Full browser: 36 passed, two documented duplicate mobile skips (7.8 minutes); real MV3: 1/1 passed (37.0 seconds), zero submit attempts. Formatting and running web/worker readiness pass.
-- [ ] Clean whole-database reset/restore rehearsal: not performed on existing local data. A separate disposable target remains necessary.
-- [ ] Hosted activation, external providers, monitoring delivery, Node 24/remote CI, deployed performance and live Reddit/Chrome compatibility remain unverified. Real crawler/runtime activation still require code work; credentials alone are insufficient.
+- [x] Final audit completed a disposable database reset/seed and full rehearsal, then restored the original services with retained volumes. This is not a backup-archive restoration test.
+- [ ] Hosted activation, external providers, monitoring delivery, Node 24/remote CI, deployed performance and live Reddit/Chrome compatibility remain unverified. The subsequent audit implements the crawler/runtime prerequisite code; approved provisioning and external acceptance remain necessary.
+
+## Final specification audit (Step 12)
+
+- [x] Guided Supabase-derived setup, explicit source-backed product review, useful toolbar controls and workflow-aware opportunity excerpts.
+- [x] Guarded company crawler, opt-in web/worker deployment profiles, checked restricted roles/TLS and separate HTTPS extension packaging.
+- [x] Tenant-scoped JSON reads, safe standard API errors, all-task AI receipts, optional model prices, embedding identity and bounded invitation retention.
+- [x] Final fresh-environment gates, desktop/mobile demo journeys and zero-submit MV3 workflow passed; source hashes tie results to the reviewed code.
+- [x] 248-row compliance matrix, delivery/setup/deployment guides, file map, meaningful ADRs and complete failure ledger.
+- [ ] Live providers, hosted deployment/CI, Node 24, live Reddit DOM, production performance and human acceptance remain separate. The historical isolation exception and render-stream diagnostic remain open review items.
 
 ## Provider coverage
 
@@ -190,11 +206,13 @@ Supabase remains the Auth/PostgreSQL/private-storage backend. Ten additive local
 | AI          | Deterministic drafts/checks; injected real-adapter tests                   | Yes         | No          |
 | Billing     | Supabase mock lifecycle; injected Stripe Checkout/Portal/webhook contracts | Yes         | No          |
 | Email       | Console outbox delivery; injected Resend and branded templates             | Yes         | No          |
-| Crawler     | Approved synthetic URL fixtures, no network fetch                          | Yes         | No          |
+| Crawler     | Synthetic fixtures plus guarded real adapter with injected network tests   | Yes         | No          |
 
-Live product-provider activation remains unverified and disabled. Reddit OAuth, real AI, Stripe and Resend adapters use injected HTTP tests; no real Reddit, paid AI, payment or external email calls occurred. Live crawler activation remains future work. Supabase Auth is locally verified; Google OAuth is guarded but not live-tested externally. The owner supplied personal Supabase configuration and authorized the provided DATABASE_URL for the hosted Phase 2 migration. Only scoped migration/provisioning helpers may read those credentials; ordinary local launchers and web/worker processes receive no hosted administrator database credential. No dashboard session or account login was used.
+Live product-provider activation remains unverified and disabled. Reddit OAuth, real AI, Stripe and Resend adapters use injected HTTP tests; no real Reddit, paid AI, payment or external email calls occurred. The guarded simple crawler and explicit deployment runtime are now implemented and tested with injected transports/configuration; external deployment remains unverified. Supabase Auth is locally verified; Google OAuth is guarded but not live-tested externally. The owner supplied personal Supabase configuration and authorized the provided DATABASE_URL for the earlier hosted Phase 2 migration. Only scoped migration/provisioning helpers may read those credentials; ordinary local launchers and web/worker processes receive no hosted administrator database credential. This audit did not inspect that private configuration or use a dashboard session.
 
 ## Remaining review items
+
+- Two Next.js render-stream-close diagnostics occurred during the passing final operations journeys. The triggering request is not identified; no authorization/data-loss failure was demonstrated.
 
 - Preserve the observed Lima external temporary-path exception in the final report. Separate approval is required before any outside-repository inspection or cleanup.
 - GitHub Actions has not run remotely. Its service job requires a separately provisioned personal Colima runner; no such external setup was performed.

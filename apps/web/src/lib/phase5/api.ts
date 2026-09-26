@@ -1,4 +1,5 @@
 import 'server-only';
+import { apiErrorResponse, createApiRequestId } from '../api-errors';
 import { createHash, randomBytes } from 'node:crypto';
 import { unstable_rethrow } from 'next/navigation';
 import { z } from 'zod';
@@ -47,7 +48,7 @@ export async function extensionRoute(
   const headers = bearer
     ? extensionCors(request)
     : new Headers({ 'Cache-Control': 'private, no-store' });
-  const requestId = crypto.randomUUID();
+  const requestId = createApiRequestId();
   headers.set('X-Request-ID', requestId);
   try {
     if (!localDraftsEnabled()) throw new ExtensionError('LOCAL_ONLY', 503);
@@ -56,11 +57,8 @@ export async function extensionRoute(
     return Response.json({ data: await action() }, { headers });
   } catch (error) {
     unstable_rethrow(error);
-    const failure = extensionFailure(error);
-    return Response.json(
-      { error: { ...failure.body.error, requestId } },
-      { status: failure.status, headers },
-    );
+    const failure = extensionFailure(error, requestId);
+    return apiErrorResponse({ error: failure.body.error, status: failure.status }, headers);
   }
 }
 export function extensionOptions(request: Request) {

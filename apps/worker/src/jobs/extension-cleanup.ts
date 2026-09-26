@@ -5,7 +5,8 @@ import { createLogger } from '@threadsignal/shared';
 import type { WorkerConfig } from '../config';
 export const EXTENSION_CLEANUP_QUEUE = 'cleanup-expired-extension-sessions';
 export async function startExtensionCleanup(sql: Sql, config: WorkerConfig) {
-  if (config.mode !== 'local') throw new Error('Extension cleanup requires local development.');
+  if (config.mode !== 'local' && config.mode !== 'deployment')
+    throw new Error('Extension cleanup requires local development.');
   const logger = createLogger({ service: 'extension-cleanup', level: config.logLevel });
   const connection = { ...config.redis, maxRetriesPerRequest: null, connectTimeout: 2000 };
   const queue = new Queue(EXTENSION_CLEANUP_QUEUE, {

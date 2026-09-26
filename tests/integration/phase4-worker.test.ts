@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import postgres from 'postgres';
 import { z } from 'zod';
 import { MockRedditProvider, type RedditProvider } from '@threadsignal/reddit';
@@ -10,6 +10,8 @@ import { processRedditJob } from '../../apps/worker/src/jobs/reddit';
 import { claimDraftJob, processDraftJob, draftPayload } from '../../apps/worker/src/jobs/drafts';
 import { processKnowledgeJob } from '../../apps/worker/src/jobs/knowledge';
 import { LocalKnowledgeStorage } from '../../apps/worker/src/storage';
+import { parseWorkerConfig } from '../../apps/worker/src/config';
+import { createWorkerAI } from '../../apps/worker/src/providers';
 import { localDatabaseUrl, verifyDocker } from '../../scripts/service-utils.mjs';
 
 describe('Phase 4 durable drafting pipeline', () => {
@@ -113,6 +115,11 @@ describe('Phase 4 durable drafting pipeline', () => {
     );
     await evaluations();
   });
+  beforeEach(async () => {
+    // Each case gets an independent admission window while exercising the actual
+    // production limits. Only this suite's disposable organization is adjusted.
+    await sql`update public.draft_jobs set created_at=now()-interval '2 minutes' where organization_id=${organization}`;
+  });
   afterAll(async () => {
     if (sql) {
       if (organization) await sql`delete from public.organizations where id=${organization}`;
@@ -150,6 +157,9 @@ describe('Phase 4 durable drafting pipeline', () => {
     return (await sql`select * from public.drafts where id=${draft}`)[0]!;
   }
   it('runs generation, independent verification and all twelve compliance checks', async () => {
+    expect(
+      await sql`select id from public.ai_task_usage where brand_id=${brand} and task='opportunity.evaluate' and provider='mock' and input_tokens=0 and output_tokens=0 and estimated_cost_usd=0`,
+    ).not.toHaveLength(0);
     const draft = await request();
     await drain(draft);
     const row = await get(draft);
@@ -197,6 +207,127 @@ describe('Phase 4 durable drafting pipeline', () => {
     await expect(
       asOwner((tx) => tx`select public.save_draft_edit(${draft},1,'A stale browser edit.')`),
     ).rejects.toThrow('DRAFT_VERSION_CONFLICT');
+  });
+  it('records actual real-provider tokens, unknown prices and unknown usage without weakening idempotency', async () => {
+    const draft = await request();
+    const job = String((await pending(draft))[0]?.id);
+    await sql`select private.record_draft_usage(${job},${sql.json({ provider: 'openai', model: 'configured-smart', input_tokens: 125, output_tokens: 31, estimated_cost_usd: null })}::jsonb)`;
+    await sql`select private.record_draft_usage(${job},${sql.json({ provider: 'openai', model: 'another-model', input_tokens: 999, output_tokens: 999, estimated_cost_usd: 1 })}::jsonb)`;
+    const [receipt] =
+      await sql`select provider,model,input_tokens,output_tokens,estimated_cost_usd from public.ai_task_usage where job_id=${job}`;
+    expect(receipt).toEqual({
+      provider: 'openai',
+      model: 'configured-smart',
+      input_tokens: 125,
+      output_tokens: 31,
+      estimated_cost_usd: null,
+    });
+    const unknownDraft = await request();
+    const unknownJob = String((await pending(unknownDraft))[0]?.id);
+    await sql`select private.record_draft_usage(${unknownJob},${sql.json({ provider: 'openai', model: 'unreported', input_tokens: null, output_tokens: null, estimated_cost_usd: null })}::jsonb)`;
+    expect(
+      (
+        await sql`select input_tokens,output_tokens,estimated_cost_usd from public.ai_task_usage where job_id=${unknownJob}`
+      )[0],
+    ).toEqual({ input_tokens: null, output_tokens: null, estimated_cost_usd: null });
+    await expect(
+      sql`select private.record_draft_usage(${unknownJob},${sql.json({ provider: 'openai', input_tokens: 'untrusted' })}::jsonb)`,
+    ).rejects.toThrow('INVALID_AI_USAGE');
+    await expect(
+      asOwner((tx) => tx`select private.record_draft_usage(${unknownJob},'{}')`),
+    ).rejects.toThrow();
+  });
+  it('persists billed failed attempts and aggregates retries without double counting', async () => {
+    const draft = await request(),
+      job = String((await pending(draft))[0]?.id);
+    const config = parseWorkerConfig({
+      DATABASE_URL: 'postgresql://postgres:synthetic-password@127.0.0.1:54322/postgres',
+    });
+    config.mode = 'deployment';
+    config.providers = {
+      ai: {
+        mode: 'openai',
+        options: {
+          apiKey: 'synthetic-api-value',
+          fastModel: 'configured-fast',
+          smartModel: 'configured-smart',
+          embeddingModel: 'configured-embedding',
+          maxRetries: 0,
+          modelCosts: { 'configured-embedding': { inputPerMillion: 1, outputPerMillion: 0 } },
+          transport: async () =>
+            Response.json({ data: [], usage: { prompt_tokens: 17, total_tokens: 17 } }),
+        },
+      },
+      reddit: { mode: 'mock' },
+      email: { mode: 'console' },
+      crawler: 'fixture',
+    };
+    const ai = createWorkerAI(config);
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      expect(await processDraftJob(sql, job, ai)).toEqual({
+        status: 'retry_or_failed',
+        code: 'AI_INVALID_RESPONSE',
+      });
+      expect(
+        (
+          await sql`select input_tokens,output_tokens,estimated_cost_usd::float as cost from public.ai_task_usage where job_id=${job}`
+        )[0],
+      ).toEqual({ input_tokens: attempt * 17, output_tokens: 0, cost: attempt * 0.000017 });
+      await sql`update public.draft_jobs set available_at=now()-interval '1 second' where id=${job}`;
+    }
+    const [receipt] =
+      await sql`select attempt,lease_token,metadata from private.draft_ai_attempts where job_id=${job} order by attempt limit 1`;
+    if (!receipt) throw new Error('Missing attempt fixture');
+    await sql`select private.record_draft_attempt_usage(${job},${receipt.attempt},${receipt.lease_token},${sql.json(receipt.metadata)}::jsonb)`;
+    expect(await sql`select id from public.ai_task_usage where job_id=${job}`).toHaveLength(1);
+    expect(
+      (await sql`select input_tokens from public.ai_task_usage where job_id=${job}`)[0]
+        ?.input_tokens,
+    ).toBe(34);
+    await expect(
+      sql`select private.record_draft_attempt_usage(${job},1,${receipt.lease_token},${sql.json({ ...receipt.metadata, input_tokens: 999 })}::jsonb)`,
+    ).rejects.toThrow('AI_USAGE_OPERATION_CONFLICT');
+    await expect(
+      asOwner(
+        (tx) =>
+          tx`select private.record_draft_attempt_usage(${job},1,${receipt.lease_token},${sql.json(receipt.metadata)}::jsonb)`,
+      ),
+    ).rejects.toThrow();
+    await expect(asOwner((tx) => tx`select * from private.draft_ai_attempts`)).rejects.toThrow();
+    const lease = randomUUID();
+    await sql`update public.draft_jobs set attempts=3 where id=${job}`;
+    await sql`select private.record_draft_attempt_usage(${job},3,${lease},${sql.json({ provider: 'openai', model: 'unreported', input_tokens: null, output_tokens: null, estimated_cost_usd: null })}::jsonb)`;
+    expect(
+      (
+        await sql`select input_tokens,output_tokens,estimated_cost_usd from public.ai_task_usage where job_id=${job}`
+      )[0],
+    ).toEqual({ input_tokens: null, output_tokens: null, estimated_cost_usd: null });
+    await sql`delete from public.draft_jobs where id=${job}`;
+    expect(await sql`select * from private.draft_ai_attempts where job_id=${job}`).toHaveLength(0);
+  });
+  it('reports missing crashed-attempt receipts as unknown until the missing receipt arrives', async () => {
+    const draft = await request(),
+      job = String((await pending(draft))[0]?.id);
+    await sql`update public.draft_jobs set attempts=2 where id=${job}`;
+    const metadata = {
+      provider: 'openai',
+      model: 'configured',
+      input_tokens: 12,
+      output_tokens: 3,
+      estimated_cost_usd: 0.01,
+    };
+    await sql`select private.record_draft_attempt_usage(${job},2,${randomUUID()},${sql.json(metadata)}::jsonb)`;
+    expect(
+      (
+        await sql`select input_tokens,estimated_cost_usd from public.ai_task_usage where job_id=${job}`
+      )[0],
+    ).toEqual({ input_tokens: null, estimated_cost_usd: null });
+    await sql`select private.record_draft_attempt_usage(${job},1,${randomUUID()},${sql.json(metadata)}::jsonb)`;
+    expect(
+      (
+        await sql`select input_tokens,estimated_cost_usd::float as cost from public.ai_task_usage where job_id=${job}`
+      )[0],
+    ).toEqual({ input_tokens: 24, cost: 0.02 });
   });
   it('regenerates without product recommendations, preserving truthful affiliation', async () => {
     const draft = await request();
@@ -323,8 +454,6 @@ describe('Phase 4 durable drafting pipeline', () => {
     expect(['ready', 'warning']).toContain((await get(draft)).status);
   });
   it('checks no-vendor instructions at the end of a long post without truncating them', async () => {
-    // Keep this synthetic suite's previous requests outside the one-minute rate window.
-    await sql`update public.draft_jobs set created_at=now()-interval '2 minutes' where organization_id=${organization}`;
     const draft = await request();
     const [post] =
       await sql`select p.id,p.body from public.drafts d join public.opportunities o on o.id=d.opportunity_id join public.reddit_posts p on p.id=o.reddit_post_id where d.id=${draft}`;

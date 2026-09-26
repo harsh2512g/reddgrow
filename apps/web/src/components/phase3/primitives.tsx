@@ -73,8 +73,8 @@ export function SignalHeader({
         <p className="mt-4 text-sm leading-7 text-muted-foreground">{description}</p>
       </div>
       <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-violet-200 bg-white/75 px-3 py-1.5 text-[10px] font-medium text-primary">
-        <span className="size-1.5 rounded-full bg-primary" /> Synthetic discussions · Production
-        Reddit ingestion disabled
+        <span className="size-1.5 rounded-full bg-primary" /> Read the community rules · Every reply
+        reviewed by you
       </div>
     </section>
   );

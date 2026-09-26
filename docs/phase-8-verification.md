@@ -1,5 +1,7 @@
 # Phase 8 verification
 
+Historical phase record. The later [specification audit](audit-verification.md) implements the crawler/runtime code prerequisites described as open below and records its own current-tree checks. These original results remain preserved.
+
 Date: 2026-09-19. Work is confined to this repository and its verified local Supabase/Redis services under Colima. Supabase remains the backend. No hosted credentials, hosted schema, external account, real provider, deployment, commit or push is used. The historical Phase 0 temporary-path isolation exception remains unresolved and preserved.
 
 ## Scope and acceptance

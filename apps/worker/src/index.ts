@@ -5,7 +5,10 @@ import { startWorker } from './runtime';
 const logger = createLogger({ service: 'worker' });
 
 try {
-  if (process.env.THREADSIGNAL_LOCAL !== '1') {
+  if (
+    process.env.THREADSIGNAL_WORKER_MODE !== 'deployment' &&
+    process.env.THREADSIGNAL_LOCAL !== '1'
+  ) {
     throw new Error('The isolated ThreadSignal runner is required.');
   }
   const input = Object.fromEntries(WORKER_ENVIRONMENT_KEYS.map((key) => [key, process.env[key]]));
@@ -32,7 +35,7 @@ try {
 } catch {
   logger.error(
     { event: 'worker_start_failed' },
-    'Start with the isolated ThreadSignal runner; check local services and configuration.',
+    'Worker startup failed; check the explicitly selected runtime profile and service configuration.',
   );
   process.exitCode = 1;
 }

@@ -13,46 +13,56 @@ export type Database = {
         Row: {
           brand_id: string
           created_at: string
-          draft_id: string
-          estimated_cost_usd: number
+          draft_id: string | null
+          estimated_cost_usd: number | null
           id: string
-          input_tokens: number
-          job_id: string
+          input_tokens: number | null
+          job_id: string | null
           model: string
+          operation_id: string | null
           organization_id: string
-          output_tokens: number
+          output_tokens: number | null
           provider: string
           task: string
         }
         Insert: {
           brand_id: string
           created_at?: string
-          draft_id: string
-          estimated_cost_usd?: number
+          draft_id?: string | null
+          estimated_cost_usd?: number | null
           id?: string
-          input_tokens?: number
-          job_id: string
+          input_tokens?: number | null
+          job_id?: string | null
           model: string
+          operation_id?: string | null
           organization_id: string
-          output_tokens?: number
+          output_tokens?: number | null
           provider: string
           task: string
         }
         Update: {
           brand_id?: string
           created_at?: string
-          draft_id?: string
-          estimated_cost_usd?: number
+          draft_id?: string | null
+          estimated_cost_usd?: number | null
           id?: string
-          input_tokens?: number
-          job_id?: string
+          input_tokens?: number | null
+          job_id?: string | null
           model?: string
+          operation_id?: string | null
           organization_id?: string
-          output_tokens?: number
+          output_tokens?: number | null
           provider?: string
           task?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "ai_task_usage_brand_scope"
+            columns: ["brand_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "brands"
+            referencedColumns: ["id", "organization_id"]
+          },
           {
             foreignKeyName: "ai_task_usage_draft_id_brand_id_organization_id_fkey"
             columns: ["draft_id", "brand_id", "organization_id"]
@@ -1180,6 +1190,7 @@ export type Database = {
           created_at: string
           document_id: string
           embedding: string
+          embedding_identity: string
           id: string
           organization_id: string
           section_heading: string | null
@@ -1194,6 +1205,7 @@ export type Database = {
           created_at?: string
           document_id: string
           embedding: string
+          embedding_identity?: string
           id?: string
           organization_id: string
           section_heading?: string | null
@@ -1208,6 +1220,7 @@ export type Database = {
           created_at?: string
           document_id?: string
           embedding?: string
+          embedding_identity?: string
           id?: string
           organization_id?: string
           section_heading?: string | null
@@ -1237,6 +1250,7 @@ export type Database = {
           content: string
           created_at: string
           document_key: string
+          embedding_identity: string
           id: string
           is_included: boolean
           organization_id: string
@@ -1253,6 +1267,7 @@ export type Database = {
           content: string
           created_at?: string
           document_key: string
+          embedding_identity?: string
           id?: string
           is_included?: boolean
           organization_id: string
@@ -1269,6 +1284,7 @@ export type Database = {
           content?: string
           created_at?: string
           document_key?: string
+          embedding_identity?: string
           id?: string
           is_included?: boolean
           organization_id?: string
@@ -2115,6 +2131,7 @@ export type Database = {
         Row: {
           author_name: string | null
           body: string | null
+          body_excerpt: string | null
           created_at: string
           created_at_provider: string
           flair: string | null
@@ -2140,6 +2157,7 @@ export type Database = {
         Insert: {
           author_name?: string | null
           body?: string | null
+          body_excerpt?: string | null
           created_at?: string
           created_at_provider: string
           flair?: string | null
@@ -2165,6 +2183,7 @@ export type Database = {
         Update: {
           author_name?: string | null
           body?: string | null
+          body_excerpt?: string | null
           created_at?: string
           created_at_provider?: string
           flair?: string | null
@@ -2850,6 +2869,12 @@ export type Database = {
         }
         Returns: undefined
       }
+      opportunity_workflow_status: {
+        Args: {
+          p_opportunity: Database["public"]["Tables"]["opportunities"]["Row"]
+        }
+        Returns: string
+      }
       platform_admin_jobs: {
         Args: {
           p_before?: string
@@ -2980,19 +3005,38 @@ export type Database = {
         }
         Returns: number
       }
-      search_knowledge: {
-        Args: { p_brand_id: string; p_embedding: string; p_query: string }
-        Returns: {
-          content: string
-          document_id: string
-          id: string
-          page_number: number
-          score: number
-          source_id: string
-          source_url: string
-          title: string
-        }[]
-      }
+      search_knowledge:
+        | {
+            Args: { p_brand_id: string; p_embedding: string; p_query: string }
+            Returns: {
+              content: string
+              document_id: string
+              id: string
+              page_number: number
+              score: number
+              source_id: string
+              source_url: string
+              title: string
+            }[]
+          }
+        | {
+            Args: {
+              p_brand_id: string
+              p_embedding: string
+              p_embedding_identity: string
+              p_query: string
+            }
+            Returns: {
+              content: string
+              document_id: string
+              id: string
+              page_number: number
+              score: number
+              source_id: string
+              source_url: string
+              title: string
+            }[]
+          }
       set_knowledge_document_included: {
         Args: { p_document_id: string; p_included: boolean }
         Returns: undefined

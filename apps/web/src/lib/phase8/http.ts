@@ -1,4 +1,5 @@
 import 'server-only';
+import { apiErrorResponse, createApiRequestId } from '../api-errors';
 import { z } from 'zod';
 import { unstable_rethrow } from 'next/navigation';
 import { createLogger, createObservability } from '@threadsignal/shared';
@@ -15,7 +16,7 @@ const observability = createObservability({});
 const logger = createLogger({ service: 'web-operations' });
 
 export async function operationsRoute(action: () => Promise<unknown>) {
-  const requestId = crypto.randomUUID();
+  const requestId = createApiRequestId();
   const headers = { 'Cache-Control': 'private, no-store', 'X-Request-Id': requestId };
   try {
     if (!localOpportunitiesEnabled()) throw new OperationsError('LOCAL_ONLY', 503);
@@ -37,7 +38,7 @@ export async function operationsRoute(action: () => Promise<unknown>) {
       },
       'Operations request did not complete.',
     );
-    return Response.json({ error: failure.error }, { status: failure.status, headers });
+    return apiErrorResponse(failure, headers);
   }
 }
 

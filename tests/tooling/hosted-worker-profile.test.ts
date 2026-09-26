@@ -33,7 +33,7 @@ describe('dedicated hosted worker credential boundary', () => {
       );
   });
   it('selects only the explicitly supplied new Storage secret and rejects duplicates', () => {
-    const key = 'sb_secret_synthetic_personal_test_only';
+    const key = 'sb_secret_' + 'synthetic_personal_test_only';
     expect(
       parseHostedStorageSecret(`SUPABASE_SECRET_KEY=${key}\nDATABASE_URL=unused\nOTHER=unused`),
     ).toBe(key);

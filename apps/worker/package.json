@@ -12,6 +12,7 @@
     "test": "vitest run --root ../.. apps/worker/tests"
   },
   "dependencies": {
+    "@threadsignal/database": "workspace:*",
     "@threadsignal/email": "workspace:*",
     "@threadsignal/opportunities": "workspace:*",
     "@threadsignal/reddit": "workspace:*",

@@ -6,6 +6,7 @@ export {
   type ClientEnv,
 } from './env.js';
 export { assertLocalProviders, getProviderModes, LOCAL_PROVIDERS } from './providers.js';
+export { parseDeploymentRuntime, type DeploymentRuntime } from './deployment.js';
 export {
   PLANS,
   getPlan,

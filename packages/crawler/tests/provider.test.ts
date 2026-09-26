@@ -30,8 +30,8 @@ describe('fixture crawler boundary', () => {
     ).rejects.toThrow();
   });
 
-  it('refuses every network provider', () => {
-    expect(() => createCrawlerProvider('simple')).toThrow('not enabled in Phase 0');
+  it('constructs the explicit simple adapter but refuses an unimplemented external service', () => {
+    expect(createCrawlerProvider('simple').mode).toBe('simple');
     expect(() => createCrawlerProvider('firecrawl')).toThrow('not enabled in Phase 0');
   });
 

@@ -1,4 +1,5 @@
 import 'server-only';
+import { apiError, apiErrorResponse } from '../api-errors';
 import { BillingProviderError } from '@threadsignal/billing';
 import { z } from 'zod';
 import { createLogger } from '@threadsignal/shared';
@@ -13,10 +14,10 @@ import { BillingError, billingFailure } from './errors';
 export async function billingWebhook(request: Request) {
   try {
     if (!billingEnabled() || getServerEnv().BILLING_PROVIDER !== 'stripe')
-      return Response.json(
-        { error: { code: 'WEBHOOK_DISABLED' } },
-        { status: 404, headers: { 'Cache-Control': 'no-store' } },
-      );
+      return apiErrorResponse({
+        status: 404,
+        error: apiError('WEBHOOK_DISABLED', 'Billing webhooks are not enabled for this provider.'),
+      });
     if (request.headers.get('content-type')?.split(';')[0]?.trim() !== 'application/json')
       throw new BillingError('INVALID_WEBHOOK', 400);
     const bytes = await boundedBody(request, 262144);
@@ -73,9 +74,6 @@ export async function billingWebhook(request: Request) {
       },
       'Billing webhook rejected or unavailable.',
     );
-    return Response.json(
-      { error: failure.error },
-      { status: failure.status, headers: { 'Cache-Control': 'no-store' } },
-    );
+    return apiErrorResponse(failure);
   }
 }

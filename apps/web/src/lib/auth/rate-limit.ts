@@ -1,4 +1,5 @@
 import 'server-only';
+import { deploymentRuntime } from '../env/runtime';
 import { createHash } from 'node:crypto';
 import { Redis } from 'ioredis';
 import { getServerEnv } from '../env/server';
@@ -28,6 +29,7 @@ export async function enforceAuthRateLimit(
 ): Promise<void> {
   getAuthConfiguration();
   const env = getServerEnv();
+  const deployment = deploymentRuntime(env);
   const url = new URL(env.REDIS_URL);
   if (process.env.THREADSIGNAL_LOCAL === '1') {
     if (
@@ -43,8 +45,9 @@ export async function enforceAuthRateLimit(
       throw new AuthActionError('AUTH_UNAVAILABLE');
   } else if (url.protocol !== 'rediss:') throw new AuthActionError('AUTH_UNAVAILABLE');
   // Separate hosted sign-ins from the local demo while keeping both on owned local Redis.
-  const scope =
-    env.THREADSIGNAL_SUPABASE_MODE === 'personal-development'
+  const scope = deployment
+    ? `threadsignal:auth:${deployment.projectRef}:${action}`
+    : env.THREADSIGNAL_SUPABASE_MODE === 'personal-development'
       ? `threadsignal:auth:personal-development:${env.THREADSIGNAL_SUPABASE_PROJECT_REF}:${action}`
       : `threadsignal:auth:${action}`;
   const keys = [`${scope}:global`];
@@ -54,6 +57,7 @@ export async function enforceAuthRateLimit(
     limits.push(5, 600_000);
   }
   const redis = new Redis(env.REDIS_URL, {
+    ...(deployment ? { tls: deployment.redis.tls } : {}),
     lazyConnect: true,
     connectTimeout: 2_000,
     commandTimeout: 2_000,

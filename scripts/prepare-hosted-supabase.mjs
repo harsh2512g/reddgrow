@@ -162,6 +162,13 @@ export function prepareHostedArtifacts(migrationsDirectory = join(root, 'supabas
           '20260923070000_paused_cleanup_retry.sql',
           '20260923080000_privacy_bucket_boundary.sql',
           '20260923090000_knowledge_worker_organization_guard.sql',
+          '20260924000000_feed_excerpt_and_workflow.sql',
+          '20260924010000_ai_usage_actuals.sql',
+          '20260924020000_ai_unknown_usage_metrics.sql',
+          '20260924030000_knowledge_embedding_identity.sql',
+          '20260924040000_invitation_retention.sql',
+          '20260924050000_general_ai_usage.sql',
+          '20260926000000_draft_attempt_accounting.sql',
         ].includes(entry),
     )
     .sort();

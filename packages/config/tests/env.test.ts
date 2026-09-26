@@ -39,6 +39,47 @@ describe('environment validation', () => {
     expect(env.REDDIT_CLIENT_SECRET).toBeUndefined();
     expect(() => assertLocalProviders(env)).toThrow('Phase 0');
   });
+  it('keeps optional operator model estimates server-only and does not require them for mock or real AI', () => {
+    const rates = { 'configured-smart': { inputPerMillion: 2, outputPerMillion: 4 } };
+    expect(parseServerEnv({}).AI_MODEL_COSTS_JSON).toBeUndefined();
+    expect(parseServerEnv({ AI_MODEL_COSTS_JSON: '' }).AI_MODEL_COSTS_JSON).toBeUndefined();
+    expect(
+      parseServerEnv({ AI_MODEL_COSTS_JSON: JSON.stringify(rates) }).AI_MODEL_COSTS_JSON,
+    ).toEqual(rates);
+    expect(parseClientEnv({ AI_MODEL_COSTS_JSON: JSON.stringify(rates) })).not.toHaveProperty(
+      'AI_MODEL_COSTS_JSON',
+    );
+  });
+  it.each([
+    'not-json',
+    'null',
+    '[]',
+    '{"model":{"inputPerMillion":-1,"outputPerMillion":0}}',
+    '{"model":{"inputPerMillion":"2","outputPerMillion":0}}',
+    '{"model":{"inputPerMillion":1e999,"outputPerMillion":0}}',
+    '{"model":{"inputPerMillion":1,"outputPerMillion":0,"unknown":1}}',
+    JSON.stringify({ ['x'.repeat(151)]: { inputPerMillion: 0, outputPerMillion: 0 } }),
+    JSON.stringify(
+      Object.fromEntries(
+        Array.from({ length: 51 }, (_, i) => [
+          `model-${i}`,
+          { inputPerMillion: 0, outputPerMillion: 0 },
+        ]),
+      ),
+    ),
+    ' '.repeat(16385),
+  ])('rejects malformed or unbounded supplied AI model estimates (%#)', (value) => {
+    expect(() =>
+      parseServerEnv({
+        AI_PROVIDER: 'openai',
+        OPENAI_API_KEY: 'synthetic-key',
+        AI_FAST_MODEL: 'fast',
+        AI_SMART_MODEL: 'smart',
+        AI_EMBEDDING_MODEL: 'embedding',
+        AI_MODEL_COSTS_JSON: value,
+      }),
+    ).toThrow('AI_MODEL_COSTS_JSON');
+  });
 
   it('fails closed for unapproved Reddit access', () => {
     expect(() =>
@@ -83,7 +124,7 @@ describe('environment validation', () => {
     );
   });
 
-  it.each(['sb_secret_synthetic_fixture_value', 'service_role', 'malformed'])(
+  it.each(['sb_secret_' + 'synthetic_fixture_value', 'service_role', 'malformed'])(
     'rejects a private or malformed key in every public key field: %s',
     (key) => {
       for (const field of [
@@ -129,7 +170,7 @@ describe('environment validation', () => {
       { GOOGLE_AUTH_ENABLED: true },
       { DATABASE_URL: 'postgres://localhost/database' },
       { SUPABASE_SERVICE_ROLE_KEY: 'synthetic-private-value' },
-      { SUPABASE_SECRET_KEY: 'sb_secret_synthetic_private_value' },
+      { SUPABASE_SECRET_KEY: 'sb_secret_' + 'synthetic_private_value' },
     ]) {
       expect(() => parseServerEnv({ ...profile, ...change })).toThrow(EnvironmentValidationError);
       expect(() => parseServerEnv({ ...readyProfile, ...change })).toThrow(

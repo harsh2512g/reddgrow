@@ -1,4 +1,6 @@
 import 'server-only';
+import { parseDeploymentRuntime, type ServerEnv } from '@threadsignal/config';
+import { verifyDeploymentDatabaseAuthority } from '@threadsignal/database';
 import { isAuthSessionMissingError } from '@supabase/supabase-js';
 import postgres from 'postgres';
 import { Redis } from 'ioredis';
@@ -81,10 +83,47 @@ async function checkRedis(url: string | undefined): Promise<DependencyState> {
   }
 }
 
-export async function checkDependencies(env: {
-  DATABASE_URL?: string | undefined;
-  REDIS_URL?: string | undefined;
-}): Promise<Readiness['checks']> {
+export async function checkDependencies(env: Partial<ServerEnv>): Promise<Readiness['checks']> {
+  if (env.THREADSIGNAL_SUPABASE_MODE === 'deployment') {
+    const deployment = parseDeploymentRuntime(
+      { ...env, THREADSIGNAL_LOCAL: process.env.THREADSIGNAL_LOCAL },
+      'web',
+    );
+    const sql = postgres({
+      ...deployment.database,
+      max: 1,
+      connect_timeout: 3,
+      idle_timeout: 1,
+      onnotice: () => undefined,
+    });
+    const redis = new Redis({
+      ...deployment.redis,
+      lazyConnect: true,
+      connectTimeout: 3000,
+      commandTimeout: 3000,
+      maxRetriesPerRequest: 0,
+      retryStrategy: () => null,
+    });
+    redis.on('error', () => undefined);
+    try {
+      const results = await Promise.allSettled([
+        verifyDeploymentDatabaseAuthority(sql, 'web'),
+        redis
+          .connect()
+          .then(() => redis.ping())
+          .then((value) => {
+            if (value !== 'PONG') throw new Error();
+          }),
+      ]);
+      return {
+        database: results[0].status === 'fulfilled' ? 'ready' : 'unavailable',
+        redis: results[1].status === 'fulfilled' ? 'ready' : 'unavailable',
+      };
+    } finally {
+      redis.disconnect();
+      await sql.end({ timeout: 1 });
+    }
+  }
   // Loopback addresses can belong to unrelated services. Only the isolated launcher
   // may enable probes after verifying this project's recorded container ownership.
   if (process.env.THREADSIGNAL_SERVICES_READY !== '1') {

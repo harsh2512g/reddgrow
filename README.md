@@ -1,6 +1,10 @@
 # ThreadSignal
 
-ThreadSignal is an independent, compliance-first Reddit opportunity platform. Phase 8 adds Supabase-backed platform operations, private exports, confirmed deletion, retention, security hardening and accessibility checks to the existing opportunity, drafting, attribution, billing and Chrome side-panel workflow. A person always performs Reddit's final submit action. Billing remains mock and email remains console-only in the development runtime.
+ThreadSignal is an independent, compliance-first Reddit opportunity platform using Supabase for Auth, PostgreSQL, pgvector and private storage. It connects brand knowledge, scored opportunities, evidence-backed drafts, manual Chrome handoff, attribution, billing and privacy controls. A person always performs Reddit's final submit action. The final specification audit adds guided setup, reviewed product extraction, a guarded website crawler and explicit deployment profiles. Local providers remain mock/fixture/console.
+
+See the [delivery guide](docs/final-delivery.md), [specification matrix](SPEC_COMPLIANCE_MATRIX.md), and [audit verification](docs/audit-verification.md) for implementation coverage, exact checks and external limitations. A deployment or overall completion claim depends on the recorded results, not this overview.
+
+The initial source release uses version `0.1.0`. See the [changelog](CHANGELOG.md), [Step 13 review](docs/step-13-review.md) and [release record](docs/step-14-release.md) for the latest fixes, checks and publication status. Hosted launch and live-provider acceptance remain separate.
 
 ## Local setup
 
@@ -31,7 +35,7 @@ BILLING_PROVIDER=mock
 CRAWLER_PROVIDER=fixture
 ```
 
-Real-provider secrets are not required in these modes. External product providers remain unavailable; Google sign-in is disabled locally.
+Real-provider secrets are not required in these modes. The local launcher cannot activate external product providers; Google sign-in is disabled locally. Separately approved deployment profiles are implemented and documented, but have not been live-tested.
 
 For the separately configured personal Supabase project, follow [hosted development setup](docs/hosted-supabase.md). `./scripts/local pnpm dev:hosted` starts only the web application at `http://localhost:3002`; local development and its data remain at `http://127.0.0.1:3000`. Apply the reviewed hosted schema and configure Auth redirects before the first hosted signup. The public connection profile is ignored by Git; existing dotenv files remain unused.
 

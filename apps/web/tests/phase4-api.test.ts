@@ -141,6 +141,13 @@ describe('draft mutation boundaries', () => {
     ]) {
       const response = await draftRoute(() => mutateDraft(request(body), phase4Ids.draft, 'save'));
       expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({
+        error: {
+          code: 'INVALID_INPUT',
+          details: {},
+          requestId: response.headers.get('x-request-id'),
+        },
+      });
     }
     expect(mocks.rpc).not.toHaveBeenCalled();
   });

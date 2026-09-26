@@ -1,12 +1,13 @@
 import { measuredProviderRequest } from '@threadsignal/shared';
 import { z } from 'zod';
 import type { AIProvider } from './index.js';
+import { embeddingIdentity } from './identity.js';
 
 export type AIUsage = {
   task: string;
   model: string;
-  input_tokens: number;
-  output_tokens: number;
+  input_tokens: number | null;
+  output_tokens: number | null;
   estimated_cost_usd: number | null;
   latency_ms: number;
 };
@@ -149,6 +150,9 @@ function removeOptionalNulls(value: unknown, schema: unknown): unknown {
 /** No environment or default credentials are read. Network requires explicit opt-in or an injected transport. */
 export class OpenAICompatibleProvider implements AIProvider {
   readonly mode = 'openai';
+  get embeddingIdentity(): string {
+    return embeddingIdentity(this.mode, this.config.embeddingModel);
+  }
   private readonly config: z.infer<typeof configSchema>;
   private readonly transport: typeof fetch;
   private readonly clock: () => number;
@@ -184,9 +188,9 @@ export class OpenAICompatibleProvider implements AIProvider {
     usage: z.infer<typeof usageSchema> | undefined,
     started: number,
   ) {
-    if (!usage) return;
     const rate = this.options.modelCosts?.[model];
     const cost =
+      usage &&
       rate &&
       Number.isFinite(rate.inputPerMillion) &&
       rate.inputPerMillion >= 0 &&
@@ -200,8 +204,8 @@ export class OpenAICompatibleProvider implements AIProvider {
       this.options.onUsage?.({
         task,
         model,
-        input_tokens: usage.prompt_tokens,
-        output_tokens: usage.completion_tokens,
+        input_tokens: usage?.prompt_tokens ?? null,
+        output_tokens: usage?.completion_tokens ?? null,
         estimated_cost_usd: cost,
         latency_ms: Math.max(0, this.clock() - started),
       });
@@ -218,12 +222,15 @@ export class OpenAICompatibleProvider implements AIProvider {
   private async request(
     path: 'chat/completions' | 'embeddings',
     payload: Record<string, unknown>,
+    task: string,
   ): Promise<unknown> {
     if (this.clock() < this.circuitUntil)
       throw new AIProviderError('CIRCUIT_OPEN', this.circuitUntil - this.clock());
     if (this.clock() < this.pauseUntil)
       throw new AIProviderError('RATE_LIMITED', this.pauseUntil - this.clock());
     for (let attempt = 0; attempt <= this.config.maxRetries; attempt++) {
+      const started = this.clock();
+      let receipt: z.infer<typeof usageSchema> | undefined;
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), this.config.timeoutMs);
       let retryable = false;
@@ -288,6 +295,10 @@ export class OpenAICompatibleProvider implements AIProvider {
         } catch {
           throw new AIProviderError('INVALID_RESPONSE');
         }
+        // Usage is independently validated before output validation. A billed
+        // response may contain unusable model output but still report tokens.
+        const reported = z.object({ usage: usageSchema.optional() }).safeParse(value);
+        if (reported.success) receipt = reported.data.usage;
         if (response.headers.get('x-ratelimit-remaining-requests') === '0') {
           const reset = response.headers
             .get('x-ratelimit-reset-requests')
@@ -310,6 +321,7 @@ export class OpenAICompatibleProvider implements AIProvider {
         }
       } finally {
         clearTimeout(timer);
+        this.record(task, String(payload.model), receipt, started);
       }
       await this.sleep(Math.min(2000, 250 * 2 ** attempt));
     }
@@ -328,7 +340,6 @@ export class OpenAICompatibleProvider implements AIProvider {
       throw new AIProviderError('CONFIGURATION');
     const smart = ['draft.generate', 'draft.verify'].includes(input.task);
     const model = smart ? this.config.smartModel : this.config.fastModel;
-    const started = this.clock();
     let raw: unknown;
     const originalSchema = z.toJSONSchema(input.schema, { target: 'draft-7' });
     const payload = {
@@ -350,7 +361,7 @@ export class OpenAICompatibleProvider implements AIProvider {
     };
     let usedModel = model;
     try {
-      raw = await this.request('chat/completions', payload);
+      raw = await this.request('chat/completions', payload, input.task);
     } catch (error) {
       // Optional model fallback is part of the same bounded request budget only when retries are disabled.
       if (
@@ -361,11 +372,10 @@ export class OpenAICompatibleProvider implements AIProvider {
       )
         throw error;
       usedModel = this.config.fallbackModel;
-      raw = await this.request('chat/completions', { ...payload, model: usedModel });
+      raw = await this.request('chat/completions', { ...payload, model: usedModel }, input.task);
     }
     const response = completionSchema.safeParse(raw);
     if (!response.success) throw this.invalidResponse();
-    this.record(input.task, usedModel, response.data.usage, started);
     const choice = response.data.choices[0]!;
     if (choice.message.refusal) throw new AIProviderError('REFUSED');
     if (choice.finish_reason !== 'stop' || !choice.message.content) throw this.invalidResponse();
@@ -388,13 +398,16 @@ export class OpenAICompatibleProvider implements AIProvider {
       .safeParse(input);
     if (!parsed.success || parsed.data.texts.reduce((sum, text) => sum + text.length, 0) > 150000)
       throw new AIProviderError('CONFIGURATION');
-    const started = this.clock();
-    const raw = await this.request('embeddings', {
-      model: this.config.embeddingModel,
-      input: parsed.data.texts,
-      dimensions: 512,
-      encoding_format: 'float',
-    });
+    const raw = await this.request(
+      'embeddings',
+      {
+        model: this.config.embeddingModel,
+        input: parsed.data.texts,
+        dimensions: 512,
+        encoding_format: 'float',
+      },
+      'embedding',
+    );
     const result = z
       .object({
         data: z
@@ -417,14 +430,6 @@ export class OpenAICompatibleProvider implements AIProvider {
     const sorted = [...result.data.data].sort((a, b) => a.index - b.index);
     if (sorted.some((item, index) => item.index !== index || Math.hypot(...item.embedding) === 0))
       throw new AIProviderError('INVALID_RESPONSE');
-    this.record(
-      'embedding',
-      this.config.embeddingModel,
-      result.data.usage
-        ? { prompt_tokens: result.data.usage.prompt_tokens, completion_tokens: 0 }
-        : undefined,
-      started,
-    );
     this.failures = 0;
     return sorted.map((item) => item.embedding);
   }

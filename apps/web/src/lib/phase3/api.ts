@@ -1,8 +1,10 @@
 import 'server-only';
+import { withWebAIUsage } from '../env/ai-usage';
+import { apiError, apiErrorResponse } from '../api-errors';
 import { enforceMutationRateLimit } from '@/lib/mutation-rate-limit';
 import { z } from 'zod';
 import { unstable_rethrow } from 'next/navigation';
-import { createRedditProvider } from '@threadsignal/reddit';
+import { configuredAIProvider, configuredRedditProvider } from '../env/providers';
 import {
   keywordInputSchema,
   communitySettingsSchema,
@@ -140,10 +142,10 @@ export async function signalRoute(action: () => Promise<unknown>) {
           : error instanceof z.ZodError
             ? new SignalError('INVALID_INPUT')
             : new SignalError('PROCESSING_FAILED', 500);
-    return Response.json(
-      { error: { code: known.code, message: messages[known.code] ?? messages.PROCESSING_FAILED } },
-      { status: known.status, headers: { 'Cache-Control': 'no-store' } },
-    );
+    return apiErrorResponse({
+      status: known.status,
+      error: apiError(known.code, messages[known.code] ?? messages.PROCESSING_FAILED!),
+    });
   }
 }
 export async function findCommunities(request: Request) {
@@ -153,18 +155,34 @@ export async function findCommunities(request: Request) {
     .trim()
     .max(100)
     .parse(new URL(request.url).searchParams.get('q') ?? '');
-  return { communities: await createRedditProvider('mock').searchSubreddits(query) };
+  const provider = configuredRedditProvider();
+  if (!query && provider.mode !== 'mock') return { communities: [] };
+  return { communities: await provider.searchSubreddits(query) };
 }
 export async function communitySuggestions(request: Request, brandId: string) {
   const workspace = await context(request, 'manage');
   const brand = await brandFor(workspace, brandId);
-  const suggestions = await suggestSubreddits(brand.profile);
-  const provider = createRedditProvider('mock');
-  const available = await provider.searchSubreddits('');
+  const ai = configuredAIProvider();
+  const suggestions = await withWebAIUsage(
+    { organizationId: workspace.organization.id, brandId: brand.id, userId: workspace.user.id },
+    'subreddit.suggest',
+    ai,
+    () => suggestSubreddits(brand.profile, ai),
+  );
+  const provider = configuredRedditProvider();
+  const available = await Promise.all(
+    suggestions.map(async ({ name }) => {
+      try {
+        return await provider.getSubreddit(name);
+      } catch {
+        return undefined;
+      }
+    }),
+  );
   return {
     communities: suggestions.flatMap((suggestion) => {
       const community = available.find(
-        (item) => item.name.toLowerCase() === suggestion.name.toLowerCase(),
+        (item) => item?.name.toLowerCase() === suggestion.name.toLowerCase(),
       );
       return community ? [{ ...community, reason: suggestion.reason }] : [];
     }),
@@ -193,7 +211,7 @@ export async function addCommunity(request: Request, brandId: string) {
       .strict(),
   );
   try {
-    await createRedditProvider('mock').getSubreddit(input.name);
+    await configuredRedditProvider().getSubreddit(input.name);
   } catch {
     throw new SignalError('COMMUNITY_UNAVAILABLE', 404);
   }
@@ -278,7 +296,14 @@ export async function editKeyword(request: Request, targetId: string, remove = f
 export async function keywordSuggestions(request: Request, brandId: string) {
   const workspace = await context(request, 'manage');
   const brand = await brandFor(workspace, brandId);
-  return { keywords: z.array(keywordInputSchema).parse(await suggestKeywords(brand.profile)) };
+  const ai = configuredAIProvider();
+  const keywords = await withWebAIUsage(
+    { organizationId: workspace.organization.id, brandId: brand.id, userId: workspace.user.id },
+    'keyword.suggest',
+    ai,
+    () => suggestKeywords(brand.profile, ai),
+  );
+  return { keywords: z.array(keywordInputSchema).parse(keywords) };
 }
 export async function keywordPreview(request: Request, brandId: string) {
   const workspace = await context(request);
@@ -290,7 +315,7 @@ export async function keywordPreview(request: Request, brandId: string) {
     .eq('brand_id', brandId);
   databaseError(result.error);
   const keywords = z.array(keywordRecordSchema).parse(result.data);
-  const provider = createRedditProvider('mock');
+  const provider = configuredRedditProvider();
   const communities = await provider.searchSubreddits('');
   const pages = await Promise.all(
     communities

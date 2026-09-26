@@ -39,7 +39,16 @@ export default async function IntegrationsSettings({
         settings={tracking.settings}
         features={tracking.features}
       />
-      <IntegrationsPanel supabaseMode={env.THREADSIGNAL_SUPABASE_MODE} />
+      <IntegrationsPanel
+        supabaseMode={env.THREADSIGNAL_SUPABASE_MODE}
+        modes={{
+          REDDIT_PROVIDER: env.REDDIT_PROVIDER,
+          AI_PROVIDER: env.AI_PROVIDER,
+          EMAIL_PROVIDER: env.EMAIL_PROVIDER,
+          BILLING_PROVIDER: env.BILLING_PROVIDER,
+          CRAWLER_PROVIDER: env.CRAWLER_PROVIDER,
+        }}
+      />
     </>
   );
 }

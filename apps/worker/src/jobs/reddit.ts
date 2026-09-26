@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { Queue, Worker } from 'bullmq';
 import type { Sql, TransactionSql } from 'postgres';
-import { createAIProvider, type AIProvider } from '@threadsignal/ai';
+import { createAIProvider, providerEmbeddingIdentity, type AIProvider } from '@threadsignal/ai';
 import {
   createRedditProvider,
   RedditProviderError,
@@ -21,6 +21,7 @@ import {
 } from '@threadsignal/opportunities';
 import { createLogger, createObservability } from '@threadsignal/shared';
 import { redditPolicySchema, type WorkerConfig } from '../config';
+import { createWorkerAI, createWorkerReddit, withWorkerAIOperation } from '../providers';
 
 export const REDDIT_QUEUES = {
   ingestion: 'reddit-ingestion',
@@ -91,8 +92,7 @@ async function communityEligible(sql: Sql | TransactionSql, job: RedditJob) {
     join public.brands b on b.id=bs.brand_id join public.organizations o on o.id=bs.organization_id
     join public.subscriptions s on s.organization_id=o.id
     where bs.subreddit_id=${job.subreddit_id} and bs.status='active' and b.status='active'
-      and o.status='active' and o.deleted_at is null and s.status in ('trialing','active')
-      and s.current_period_end>now()
+      and o.status='active' and o.deleted_at is null and private.billing_plan_active(o.id)
       and (${job.kind}='rules' or case ${job.sort} when 'new' then bs.monitor_new when 'hot' then bs.monitor_hot else bs.monitor_rising end)) as eligible`;
   return row?.eligible === true;
 }
@@ -118,7 +118,7 @@ async function enqueueEvaluations(tx: TransactionSql, postId: string, subredditI
     from public.brand_subreddits bs join public.brands b on b.id=bs.brand_id
     join public.organizations o on o.id=b.organization_id join public.subscriptions s on s.organization_id=o.id
     where bs.subreddit_id=${subredditId} and bs.status='active' and b.status='active'
-      and o.status='active' and o.deleted_at is null and s.status in ('trialing','active') and s.current_period_end>now()`;
+      and o.status='active' and o.deleted_at is null and private.billing_plan_active(o.id)`;
 }
 /** Shared provider mutations serialize with tenant draft review and deletion publication. */
 async function lockCommunityOrganizations(tx: TransactionSql, subredditId: string) {
@@ -250,7 +250,7 @@ async function refreshPost(sql: Sql, job: RedditJob, provider: RedditProvider) {
     return 'completed';
   });
 }
-async function readEvaluationContext(sql: Sql | TransactionSql, job: RedditJob) {
+async function readEvaluationContext(sql: Sql | TransactionSql, job: RedditJob, identity: string) {
   const [raw] =
     await sql`select p.*,s.name from public.reddit_posts p join public.subreddits s on s.id=p.subreddit_id where p.id=${job.reddit_post_id}`;
   const [brand] =
@@ -259,7 +259,7 @@ async function readEvaluationContext(sql: Sql | TransactionSql, job: RedditJob) 
       join public.organizations o on o.id=b.organization_id join public.subscriptions subscription on subscription.organization_id=o.id
       where b.id=${job.brand_id} and b.organization_id=${job.organization_id} and bs.subreddit_id=${raw?.subreddit_id ?? null}
         and b.status='active' and bs.status='active' and o.status='active' and o.deleted_at is null
-        and subscription.status in ('trialing','active') and subscription.current_period_end>now()`;
+        and private.billing_plan_active(o.id)`;
   if (!raw || !brand || raw.is_deleted) return null;
   const post = storedPost.parse(raw);
   const [keywords, competitors, rules, knowledge, duplicates, dismissalFeedback] =
@@ -267,7 +267,7 @@ async function readEvaluationContext(sql: Sql | TransactionSql, job: RedditJob) 
       sql`select value,kind,is_exclusion,status,source from public.brand_keywords where brand_id=${job.brand_id} and organization_id=${job.organization_id} order by id`,
       sql`select id,name,domain,aliases from public.brand_competitors where brand_id=${job.brand_id} and organization_id=${job.organization_id} order by id`,
       sql`select provider_rule_id as id,title,description,kind,applies_to as "appliesTo" from public.subreddit_rules where subreddit_id=${post.subreddit_id} order by provider_rule_id`,
-      sql`select c.id,c.source_id,d.title,c.content,d.canonical_url as source_url from public.knowledge_chunks c join public.knowledge_documents d on d.id=c.document_id join public.knowledge_sources s on s.id=c.source_id where c.brand_id=${job.brand_id} and c.organization_id=${job.organization_id} and s.deleted_at is null and s.status in ('ready','partial') and d.is_included order by c.created_at,c.id limit 8`,
+      sql`select c.id,c.source_id,d.title,c.content,d.canonical_url as source_url from public.knowledge_chunks c join public.knowledge_documents d on d.id=c.document_id join public.knowledge_sources s on s.id=c.source_id where c.brand_id=${job.brand_id} and c.organization_id=${job.organization_id} and s.deleted_at is null and s.status in ('ready','partial') and d.is_included and c.embedding_identity=${identity} and d.embedding_identity=${identity} order by c.created_at,c.id limit 8`,
       sql`select p.id from public.reddit_posts p join public.reddit_posts current on current.id=${job.reddit_post_id} where p.subreddit_id=current.subreddit_id and p.provider=current.provider and not p.is_deleted and p.title=current.title and p.body=current.body and (p.created_at<current.created_at or (p.created_at=current.created_at and p.provider_post_id<current.provider_post_id)) limit 1`,
       sql`select s.name as subreddit,o.intent_category,o.dismissed_reason as reason,least(count(*),1000000)::integer as count
       from public.opportunities o join public.reddit_posts p on p.id=o.reddit_post_id
@@ -305,89 +305,100 @@ async function evaluatePost(
   ai: AIProvider,
 ) {
   const context = await sql.begin('isolation level repeatable read read only', (tx) =>
-    readEvaluationContext(tx, job),
+    readEvaluationContext(tx, job, providerEmbeddingIdentity(ai)),
   );
   if (!context) return skipIneligible(sql, job);
   const { brand, post, keywords, competitors, rules, knowledge, duplicates, dismissalFeedback } =
     context;
   const checksum = contextDigest(context);
-  const evaluation = await evaluateOpportunity(
+  const evaluation = await withWorkerAIOperation(
+    sql,
     {
-      brand: {
-        id: z.uuid().parse(brand.id),
-        organization_id: z.uuid().parse(brand.organization_id),
-        profile: brand.profile,
-      },
-      post: {
-        id: post.provider_post_id,
-        subreddit: post.name,
-        permalink: post.permalink!,
-        title: post.title ?? '',
-        body: post.body ?? '',
-        authorName: post.author_name,
-        createdAt: post.created_at_provider,
-        score: post.score,
-        commentCount: post.num_comments,
-        upvoteRatio: post.upvote_ratio,
-        flair: post.flair,
-        isNsfw: post.is_nsfw,
-        isLocked: post.is_locked,
-        isArchived: post.is_archived,
-        isDeleted: post.is_deleted,
-        isEdited: post.is_edited,
-      },
-      rules: z
-        .array(
-          z.object({
-            id: z.string(),
-            title: z.string(),
-            description: z.string(),
-            kind: z.string(),
-            appliesTo: z.string(),
-          }),
-        )
-        .parse(rules),
-      keywords: z.array(keywordInputSchema).parse(keywords),
-      competitors: z
-        .array(
-          z.object({
-            id: z.uuid(),
-            name: z.string(),
-            domain: z.string(),
-            aliases: z.array(z.string()),
-          }),
-        )
-        .parse(competitors),
-      knowledge: z
-        .array(
-          z.object({
-            id: z.uuid(),
-            source_id: z.uuid(),
-            title: z.string(),
-            content: z.string(),
-            source_url: z.string().nullable(),
-          }),
-        )
-        .parse(knowledge),
-      now,
-      maxAgeDays,
-      duplicate: duplicates.length > 0,
-      dismissalFeedback: z
-        .array(
-          z.object({
-            subreddit: z.string(),
-            intent_category: intentCategorySchema,
-            reason: dismissalReasonSchema,
-            count: z.number().int().min(0).max(1000000),
-          }),
-        )
-        .max(50)
-        .parse(dismissalFeedback),
-      allowedReplyStyle: z
-        .enum(['helpful', 'technical', 'no_links', 'answer_only'])
-        .parse(brand.allowed_reply_style),
+      organizationId: z.uuid().parse(brand.organization_id),
+      brandId: z.uuid().parse(brand.id),
+      operationId: job.lease_token,
+      task: 'opportunity.evaluate',
     },
     ai,
+    (tracked) =>
+      evaluateOpportunity(
+        {
+          brand: {
+            id: z.uuid().parse(brand.id),
+            organization_id: z.uuid().parse(brand.organization_id),
+            profile: brand.profile,
+          },
+          post: {
+            id: post.provider_post_id,
+            subreddit: post.name,
+            permalink: post.permalink!,
+            title: post.title ?? '',
+            body: post.body ?? '',
+            authorName: post.author_name,
+            createdAt: post.created_at_provider,
+            score: post.score,
+            commentCount: post.num_comments,
+            upvoteRatio: post.upvote_ratio,
+            flair: post.flair,
+            isNsfw: post.is_nsfw,
+            isLocked: post.is_locked,
+            isArchived: post.is_archived,
+            isDeleted: post.is_deleted,
+            isEdited: post.is_edited,
+          },
+          rules: z
+            .array(
+              z.object({
+                id: z.string(),
+                title: z.string(),
+                description: z.string(),
+                kind: z.string(),
+                appliesTo: z.string(),
+              }),
+            )
+            .parse(rules),
+          keywords: z.array(keywordInputSchema).parse(keywords),
+          competitors: z
+            .array(
+              z.object({
+                id: z.uuid(),
+                name: z.string(),
+                domain: z.string(),
+                aliases: z.array(z.string()),
+              }),
+            )
+            .parse(competitors),
+          knowledge: z
+            .array(
+              z.object({
+                id: z.uuid(),
+                source_id: z.uuid(),
+                title: z.string(),
+                content: z.string(),
+                source_url: z.string().nullable(),
+              }),
+            )
+            .parse(knowledge),
+          now,
+          maxAgeDays,
+          duplicate: duplicates.length > 0,
+          dismissalFeedback: z
+            .array(
+              z.object({
+                subreddit: z.string(),
+                intent_category: intentCategorySchema,
+                reason: dismissalReasonSchema,
+                count: z.number().int().min(0).max(1000000),
+              }),
+            )
+            .max(50)
+            .parse(dismissalFeedback),
+          allowedReplyStyle: z
+            .enum(['helpful', 'technical', 'no_links', 'answer_only'])
+            .parse(brand.allowed_reply_style),
+        },
+        tracked,
+      ),
   );
   return sql.begin(async (tx) => {
     // Match manager lock order before the lease row; a rescore request also
@@ -396,7 +407,7 @@ async function evaluatePost(
     await tx`select id from public.brands where id=${job.brand_id} for update`;
     await tx`select id from public.reddit_posts where id=${job.reddit_post_id} for share`;
     if (!(await lockLease(tx, job))) return 'stale';
-    const current = await readEvaluationContext(tx, job);
+    const current = await readEvaluationContext(tx, job, providerEmbeddingIdentity(ai));
     if (!current) {
       await complete(tx, job, 'NO_LONGER_ELIGIBLE');
       return 'skipped';
@@ -531,14 +542,14 @@ export async function scheduleRedditJobs(
       join public.organizations o on o.id=b.organization_id join public.subscriptions subscription on subscription.organization_id=o.id
       cross join unnest(array['new','hot','rising']) sort
       where bs.status='active' and b.status='active' and o.status='active' and o.deleted_at is null
-        and subscription.status in ('trialing','active') and subscription.current_period_end>now()
+        and private.billing_plan_active(o.id)
         and case sort when 'new' then bs.monitor_new when 'hot' then bs.monitor_hot else bs.monitor_rising end on conflict(subreddit_id,sort) do nothing`;
       const due =
         await tx`select c.subreddit_id,c.sort,c.last_rules_sync_at from public.reddit_sync_checkpoints c where not c.provider_paused and c.next_sync_at<=now()
         and exists(select 1 from public.brand_subreddits bs join public.brands b on b.id=bs.brand_id
           join public.organizations o on o.id=b.organization_id join public.subscriptions subscription on subscription.organization_id=o.id
           where bs.subreddit_id=c.subreddit_id and bs.status='active' and b.status='active' and o.status='active' and o.deleted_at is null
-            and subscription.status in ('trialing','active') and subscription.current_period_end>now()
+            and private.billing_plan_active(o.id)
             and case c.sort when 'new' then bs.monitor_new when 'hot' then bs.monitor_hot else bs.monitor_rising end)
         order by c.next_sync_at limit 50 for update`;
       for (const row of due) {
@@ -550,7 +561,7 @@ export async function scheduleRedditJobs(
         and exists(select 1 from public.brand_subreddits bs join public.brands b on b.id=bs.brand_id
           join public.organizations o on o.id=b.organization_id join public.subscriptions subscription on subscription.organization_id=o.id
           where bs.subreddit_id=c.subreddit_id and bs.status='active' and b.status='active' and o.status='active' and o.deleted_at is null
-            and subscription.status in ('trialing','active') and subscription.current_period_end>now()) limit 100`;
+            and private.billing_plan_active(o.id)) limit 100`;
       await tx`select private.queue_reddit_job('refresh',null,'new',null,p.id) from public.reddit_posts p where not p.is_deleted and p.last_synced_at<now()-interval '12 hours' order by p.last_synced_at limit 100`;
     }
     // Failure to refresh cannot retain content indefinitely. Purge stale or aged data conservatively.
@@ -566,12 +577,13 @@ export async function scheduleRedditJobs(
 }
 
 export async function startRedditWorker(sql: Sql, config: WorkerConfig) {
-  if (config.mode !== 'local')
+  if (config.mode !== 'local' && config.mode !== 'deployment')
     throw new Error('Phase 3 processing requires the verified local database.');
   const logger = createLogger({ service: 'reddit-worker', level: config.logLevel });
   const observability = createObservability({});
   const connection = { ...config.redis, maxRetriesPerRequest: null, connectTimeout: 2000 };
-  const provider = createRedditProvider();
+  const provider = createWorkerReddit(config);
+  const ai = createWorkerAI(config);
   const queues = Object.values(REDDIT_QUEUES).map(
     (name) =>
       new Queue<{ jobId: string }>(name, {
@@ -593,6 +605,7 @@ export async function startRedditWorker(sql: Sql, config: WorkerConfig) {
               provider,
               new Date(),
               config.redditPolicy,
+              ai,
             );
             logger.info(
               { event: 'reddit_job_finished', jobId: data.jobId, ...result },

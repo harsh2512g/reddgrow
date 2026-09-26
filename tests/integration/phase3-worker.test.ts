@@ -154,6 +154,87 @@ describe('Phase 3 durable opportunity pipeline', () => {
       await sql`select provider_post_id from public.reddit_posts group by provider,provider_post_id having count(*)>1`,
     ).toHaveLength(0);
   });
+  it('honors the billing grace period consistently when scheduling, ingesting and evaluating', async () => {
+    const [subscription] =
+      await sql`select status,grace_ends_at from public.subscriptions where organization_id=${organization}`;
+    try {
+      await sql`update public.subscriptions set status='past_due',grace_ends_at=now()+interval '3 days' where organization_id=${organization}`;
+      expect((await processRedditJob(sql, await enqueue('sync'), provider, clock)).status).toBe(
+        'completed',
+      );
+      expect((await processRedditJob(sql, await enqueue('rules'), provider, clock)).status).toBe(
+        'completed',
+      );
+      const pending =
+        await sql`select id from public.reddit_jobs where brand_id=${brand} and kind='evaluate' and status='queued'`;
+      expect(pending.length).toBeGreaterThan(0);
+      const evaluationResults = [];
+      for (const row of pending) {
+        evaluationResults.push(
+          (await processRedditJob(sql, String(row.id), provider, clock)).status,
+        );
+      }
+      // Fixture safety filters still apply while grace preserves eligible processing.
+      expect(evaluationResults).toContain('completed');
+      expect(
+        evaluationResults.every((status) => ['completed', 'filtered', 'skipped'].includes(status)),
+      ).toBe(true);
+      await sql`update public.reddit_sync_checkpoints set next_sync_at=now()-interval '1 minute',last_rules_sync_at=now()-interval '2 days' where subreddit_id=${subreddit}`;
+      await scheduleRedditJobs(sql);
+      const scheduled =
+        await sql`select id,kind from public.reddit_jobs where subreddit_id=${subreddit} and status='queued' and kind in ('sync','rules')`;
+      expect(scheduled.some((row) => row.kind === 'sync')).toBe(true);
+      expect(scheduled.some((row) => row.kind === 'rules')).toBe(true);
+      for (const row of scheduled) {
+        expect((await processRedditJob(sql, String(row.id), provider, clock)).status).toBe(
+          'completed',
+        );
+      }
+      await evaluations();
+    } finally {
+      await sql`update public.subscriptions set status=${String(subscription?.status)},grace_ends_at=${subscription?.grace_ends_at ?? null} where organization_id=${organization}`;
+    }
+  });
+  it('stops new provider work and evaluation after billing grace expires', async () => {
+    const [subscription] =
+      await sql`select status,grace_ends_at from public.subscriptions where organization_id=${organization}`;
+    let providerCalls = 0;
+    const guardedProvider: RedditProvider = {
+      ...provider,
+      listPosts: async (input) => {
+        providerCalls++;
+        return provider.listPosts(input);
+      },
+      getSubredditRules: async (name) => {
+        providerCalls++;
+        return provider.getSubredditRules(name);
+      },
+    };
+    try {
+      await sql`update public.subscriptions set status='past_due',grace_ends_at=now()-interval '1 second' where organization_id=${organization}`;
+      expect(
+        (await processRedditJob(sql, await enqueue('sync'), guardedProvider, clock)).status,
+      ).toBe('skipped');
+      expect(
+        (await processRedditJob(sql, await enqueue('rules'), guardedProvider, clock)).status,
+      ).toBe('skipped');
+      const [opportunity] =
+        await sql`select reddit_post_id from public.opportunities where brand_id=${brand} and not is_blocked limit 1`;
+      const postId = z.uuid().parse(opportunity?.reddit_post_id);
+      expect(
+        (await processRedditJob(sql, await enqueue('evaluate', postId), guardedProvider, clock))
+          .status,
+      ).toBe('skipped');
+      expect(providerCalls).toBe(0);
+      await sql`update public.reddit_sync_checkpoints set next_sync_at=now()-interval '1 minute',last_rules_sync_at=now()-interval '2 days' where subreddit_id=${subreddit}`;
+      await scheduleRedditJobs(sql);
+      expect(
+        await sql`select id from public.reddit_jobs where subreddit_id=${subreddit} and status='queued' and kind in ('sync','rules')`,
+      ).toHaveLength(0);
+    } finally {
+      await sql`update public.subscriptions set status=${String(subscription?.status)},grace_ends_at=${subscription?.grace_ends_at ?? null} where organization_id=${organization}`;
+    }
+  });
   it.each(['mock', 'oauth'] as const)(
     'reconciles only synthetic fixture freshness when the provider is %s',
     async (mode) => {

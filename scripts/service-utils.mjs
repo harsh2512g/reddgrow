@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, mkdirSync, cpSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { root, state, localEnvironment, assertInside } from './isolation.mjs';
+import { root, state, localEnvironment, assertInside, dockerSocketFor } from './isolation.mjs';
 import {
   ownershipInspectFormat,
   recordServiceOwnership,
@@ -10,7 +10,7 @@ import {
 } from './service-ownership.mjs';
 
 export const workdir = join(state, 'services');
-export const socket = join(state, 'colima/default/docker.sock');
+export const socket = dockerSocketFor(root);
 export function dockerClientConfiguration() {
   return { auths: {}, credsStore: 'threadsignal', currentContext: 'colima' };
 }

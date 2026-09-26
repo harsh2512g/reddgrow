@@ -24,7 +24,7 @@ export class WorkerKnowledgeStorage {
     if (
       config.mode === 'local'
         ? config.baseUrl !== 'http://127.0.0.1:54321'
-        : config.mode !== 'personal-development' ||
+        : !['personal-development', 'deployment'].includes(config.mode) ||
           !/^[a-z]{20}$/.test(config.projectRef) ||
           config.baseUrl !== `https://${config.projectRef}.supabase.co` ||
           !/^sb_secret_[A-Za-z0-9_-]{16,200}$/.test(config.key)

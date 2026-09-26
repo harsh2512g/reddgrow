@@ -1,4 +1,12 @@
-import { assertLocalProviders, parseServerEnv } from '@threadsignal/config';
+import {
+  assertLocalProviders,
+  parseDeploymentRuntime,
+  parseServerEnv,
+  type DeploymentRuntime,
+} from '@threadsignal/config';
+import type { OpenAIProviderOptions } from '@threadsignal/ai';
+import type { OAuthRedditOptions } from '@threadsignal/reddit';
+import type { ResendEmailOptions } from '@threadsignal/email';
 import { z } from 'zod';
 import { QUEUE_PREFIX } from './jobs/heartbeat';
 
@@ -24,6 +32,28 @@ export const WORKER_ENVIRONMENT_KEYS = [
   'REDDIT_CONTENT_RETENTION_DAYS',
   'DRAFT_MAX_SOURCE_CHARACTERS',
   'DRAFT_MAX_CONTEXT_CHARACTERS',
+  'THREADSIGNAL_LOCAL',
+  'THREADSIGNAL_DEPLOYMENT_APPROVED',
+  'THREADSIGNAL_RUNTIME_ROLE',
+  'NEXT_PUBLIC_APP_URL',
+  'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY',
+  'REDDIT_CLIENT_ID',
+  'REDDIT_CLIENT_SECRET',
+  'REDDIT_USER_AGENT',
+  'REDDIT_COMMERCIAL_APPROVAL_CONFIRMED',
+  'OPENAI_API_KEY',
+  'AI_FAST_MODEL',
+  'AI_SMART_MODEL',
+  'AI_EMBEDDING_MODEL',
+  'AI_MODEL_COSTS_JSON',
+  'AI_MAX_RETRIES',
+  'RESEND_API_KEY',
+  'EMAIL_FROM',
+  'STRIPE_SECRET_KEY',
+  'STRIPE_WEBHOOK_SECRET',
+  'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY',
+  'STRIPE_SOLO_PRICE_ID',
+  'STRIPE_GROWTH_PRICE_ID',
 ] as const;
 
 export const redditPolicySchema = z
@@ -49,10 +79,24 @@ export const draftPolicySchema = z
 
 export type WorkerStorageConfig =
   | { mode: 'local'; baseUrl: 'http://127.0.0.1:54321'; key: string | undefined }
-  | { mode: 'personal-development'; baseUrl: string; projectRef: string; key: string };
+  | {
+      mode: 'personal-development' | 'deployment';
+      baseUrl: string;
+      projectRef: string;
+      key: string;
+    };
+
+export type WorkerProviderConfig = {
+  ai: { mode: 'mock' | 'openai'; options?: OpenAIProviderOptions };
+  reddit: { mode: 'mock' | 'oauth'; options?: OAuthRedditOptions };
+  email: { mode: 'console' | 'resend'; options?: ResendEmailOptions };
+  crawler: 'fixture' | 'simple';
+};
 
 export type WorkerConfig = {
-  mode: 'local' | 'personal-development';
+  mode: 'local' | 'personal-development' | 'deployment';
+  appOrigin?: string;
+  providers?: WorkerProviderConfig;
   port: number;
   logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
   database: {
@@ -63,7 +107,7 @@ export type WorkerConfig = {
     password: string;
     ssl: false | { rejectUnauthorized: true; ca: string; servername: string };
   };
-  redis: { host: string; port: number; db: number };
+  redis: { host: string; port: number; db: number } | DeploymentRuntime['redis'];
   queuePrefix: string;
   storage: WorkerStorageConfig;
   redditPolicy: z.infer<typeof redditPolicySchema>;
@@ -187,6 +231,7 @@ function parseHostedWorkerConfig(input: Record<string, unknown>): WorkerConfig {
 }
 
 export function parseWorkerConfig(input: Record<string, unknown>): WorkerConfig {
+  if (input.THREADSIGNAL_WORKER_MODE === 'deployment') return parseDeploymentWorkerConfig(input);
   if (input.THREADSIGNAL_WORKER_MODE === 'personal-development')
     return parseHostedWorkerConfig(input);
   if (input.THREADSIGNAL_WORKER_MODE !== undefined && input.THREADSIGNAL_WORKER_MODE !== 'local')
@@ -261,4 +306,80 @@ export function parseWorkerConfig(input: Record<string, unknown>): WorkerConfig 
       key: env.SUPABASE_SERVICE_ROLE_KEY,
     },
   };
+}
+
+function parseDeploymentWorkerConfig(input: Record<string, unknown>): WorkerConfig {
+  try {
+    const runtime = parseDeploymentRuntime(input, 'worker');
+    const env = parseServerEnv(input);
+    if (!runtime.storageKey || env.CRAWLER_PROVIDER === 'firecrawl') throw new Error();
+    return {
+      mode: 'deployment',
+      appOrigin: runtime.appOrigin,
+      port: env.WORKER_PORT,
+      logLevel: env.LOG_LEVEL,
+      database: runtime.database,
+      redis: runtime.redis,
+      queuePrefix: runtime.queuePrefix,
+      storage: {
+        mode: 'deployment',
+        baseUrl: runtime.supabaseUrl,
+        projectRef: runtime.projectRef,
+        key: runtime.storageKey,
+      },
+      redditPolicy: redditPolicySchema.parse({
+        maxAgeDays: input.REDDIT_MAX_POST_AGE_DAYS,
+        retentionDays: input.REDDIT_CONTENT_RETENTION_DAYS,
+      }),
+      draftPolicy: draftPolicySchema.parse({
+        maxSourceCharacters: input.DRAFT_MAX_SOURCE_CHARACTERS,
+        maxContextCharacters: input.DRAFT_MAX_CONTEXT_CHARACTERS,
+      }),
+      providers: {
+        crawler: env.CRAWLER_PROVIDER,
+        ai: {
+          mode: env.AI_PROVIDER,
+          ...(env.AI_PROVIDER === 'openai'
+            ? {
+                options: {
+                  apiKey: env.OPENAI_API_KEY ?? '',
+                  fastModel: env.AI_FAST_MODEL ?? '',
+                  smartModel: env.AI_SMART_MODEL ?? '',
+                  embeddingModel: env.AI_EMBEDDING_MODEL ?? '',
+                  ...(env.AI_MODEL_COSTS_JSON ? { modelCosts: env.AI_MODEL_COSTS_JSON } : {}),
+                  maxRetries: Math.min(2, env.AI_MAX_RETRIES),
+                  allowNetwork: true,
+                },
+              }
+            : {}),
+        },
+        reddit: {
+          mode: env.REDDIT_PROVIDER,
+          ...(env.REDDIT_PROVIDER === 'oauth'
+            ? {
+                options: {
+                  commercialApprovalConfirmed: env.REDDIT_COMMERCIAL_APPROVAL_CONFIRMED,
+                  clientId: env.REDDIT_CLIENT_ID ?? '',
+                  clientSecret: env.REDDIT_CLIENT_SECRET ?? '',
+                  userAgent: env.REDDIT_USER_AGENT ?? '',
+                },
+              }
+            : {}),
+        },
+        email: {
+          mode: env.EMAIL_PROVIDER,
+          ...(env.EMAIL_PROVIDER === 'resend'
+            ? {
+                options: {
+                  apiKey: env.RESEND_API_KEY ?? '',
+                  from: env.EMAIL_FROM ?? '',
+                },
+              }
+            : {}),
+        },
+      },
+    };
+  } catch {
+    throw new Error('Invalid approved worker deployment configuration.');
+  }
 }

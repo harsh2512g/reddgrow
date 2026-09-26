@@ -60,9 +60,17 @@ describe('security proxy integration', () => {
   });
   it('does not introduce authentication redirects into public tracking, webhooks, or public pages', async () => {
     for (const path of ['/', '/api/billing/webhook', '/api/v1/conversions', '/go/fixture']) {
-      const response = await proxy(new NextRequest(`http://127.0.0.1:3000${path}`));
+      const request = new NextRequest(`http://127.0.0.1:3000${path}`, {
+        headers: { 'x-request-id': 'forged' },
+      });
+      const response = await proxy(request);
       expect(response.status).toBe(200);
-      expect(response.headers.get('x-request-id')).toBeTruthy();
+      expect(request.headers.get('x-request-id')).not.toBe('forged');
+      expect(request.headers.get('x-request-id')).toMatch(/^[0-9a-f-]{36}$/);
+      // JSON/redirect route handlers own their response ID so it matches their error body.
+      expect(response.headers.get('x-request-id')).toBe(
+        path === '/' ? request.headers.get('x-request-id') : null,
+      );
       expect(response.headers.get('access-control-allow-origin')).toBeNull();
     }
     expect(mocks.refresh).not.toHaveBeenCalled();

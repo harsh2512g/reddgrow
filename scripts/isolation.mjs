@@ -5,6 +5,46 @@ import { fileURLToPath } from 'node:url';
 export const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const state = join(root, '.threadsignal');
 export const registry = 'https://registry.npmjs.org/';
+// Lima adds a temporary suffix to its SSH control socket on macOS. Snapshot
+// roots need a shorter directory; the original project's state stays unchanged.
+export function limaHomeFor(projectRoot) {
+  return join(projectRoot, projectRoot.endsWith('/.audit') ? '.lima' : '.local/lima');
+}
+export function colimaHomeFor(projectRoot) {
+  return join(projectRoot, projectRoot.endsWith('/.audit') ? '.colima' : '.threadsignal/colima');
+}
+export function dockerSocketFor(projectRoot) {
+  return join(colimaHomeFor(projectRoot), 'default/docker.sock');
+}
+export function projectSocketPaths(projectRoot) {
+  return [
+    ...[
+      'colima/ssh.sock.1234567890123456',
+      'colima/ha.sock',
+      'colima/ga.sock',
+      'colima/qmp.sock',
+      'colima/serial.sock',
+      'colima/vz.sock',
+    ].map((name) => join(limaHomeFor(projectRoot), name)),
+    ...['default/docker.sock', 'default/containerd.sock', 'docker.sock'].map((name) =>
+      join(colimaHomeFor(projectRoot), name),
+    ),
+  ];
+}
+export function assertProjectSocketLengths(projectRoot) {
+  const paths = projectSocketPaths(projectRoot);
+  if (paths.some((path) => Buffer.byteLength(path) >= 104))
+    throw new Error('Every project Lima/Colima socket path must be shorter than 104 bytes.');
+  return paths.map((path) => ({ path, bytes: Buffer.byteLength(path) }));
+}
+export function assertLimaSocketLength(projectRoot) {
+  const bytes = Buffer.byteLength(
+    join(limaHomeFor(projectRoot), 'colima/ssh.sock.1234567890123456'),
+  );
+  if (bytes >= 104)
+    throw new Error('Project Lima temporary SSH socket path must be shorter than 104 bytes.');
+  return bytes;
+}
 
 export function assertInside(path) {
   const target = resolve(path);
@@ -32,6 +72,7 @@ export function assertInside(path) {
 }
 
 export function localEnvironment() {
+  assertProjectSocketLengths(root);
   const directories = [
     'tmp',
     'npm-cache',
@@ -50,7 +91,8 @@ export function localEnvironment() {
   ];
   for (const directory of directories)
     mkdirSync(assertInside(join(state, directory)), { recursive: true });
-  mkdirSync(assertInside(join(root, '.local/lima')), { recursive: true });
+  mkdirSync(assertInside(limaHomeFor(root)), { recursive: true });
+  mkdirSync(assertInside(colimaHomeFor(root)), { recursive: true });
   // An explicit allowlist prevents inheriting shell credentials, proxies, cloud profiles,
   // NODE_OPTIONS, package auth, Docker hosts, and monitoring destinations.
   return {
@@ -87,8 +129,8 @@ export function localEnvironment() {
     COREPACK_HOME: join(state, 'corepack'),
     COREPACK_ENABLE_PROJECT_SPEC: '0',
     DOCKER_CONFIG: join(state, 'docker'),
-    COLIMA_HOME: join(state, 'colima'),
-    LIMA_HOME: join(root, '.local/lima'),
+    COLIMA_HOME: colimaHomeFor(root),
+    LIMA_HOME: limaHomeFor(root),
     PLAYWRIGHT_BROWSERS_PATH: join(state, 'playwright'),
     NEXT_TELEMETRY_DISABLED: '1',
     TURBO_TELEMETRY_DISABLED: '1',

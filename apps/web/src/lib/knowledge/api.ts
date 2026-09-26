@@ -1,5 +1,6 @@
 import 'server-only';
 import { enforceMutationRateLimit } from '@/lib/mutation-rate-limit';
+import { extractionProofSchema } from './extraction-schema';
 import { randomUUID } from 'node:crypto';
 import { unstable_rethrow } from 'next/navigation';
 import { z } from 'zod';
@@ -11,10 +12,12 @@ import {
   MAX_UPLOAD_BYTES,
 } from '@threadsignal/knowledge';
 import { validateKnowledgeFile, IngestionError } from '@threadsignal/knowledge/files';
-import { discoverFixturePages } from '@threadsignal/crawler';
+import { discoverFixturePages, SimpleCrawlerProvider } from '@threadsignal/crawler';
 import { requireOrganization } from '@/lib/organizations/server';
 import { hasTrustedOrigin } from '@/lib/auth/policy';
 import { getServerEnv } from '@/lib/env/server';
+import { deploymentRuntime } from '@/lib/env/runtime';
+import { requireActiveProviderPlan } from '@/lib/provider-plan';
 import { brandColumns, sourceColumns, localKnowledgeEnabled, searchKnowledge } from './server';
 import {
   KnowledgeError,
@@ -25,7 +28,7 @@ import {
 } from './http';
 
 type Context = Awaited<ReturnType<typeof requireOrganization>>;
-async function apiContext(request: Request, manage = false) {
+export async function apiContext(request: Request, manage = false) {
   if (!localKnowledgeEnabled()) throw new KnowledgeError('KNOWLEDGE_UNAVAILABLE', 503);
   if (manage && !hasTrustedOrigin(request.headers, getServerEnv().NEXT_PUBLIC_APP_URL))
     throw new KnowledgeError('FORBIDDEN', 403);
@@ -40,7 +43,7 @@ function id(value: string) {
   if (!result.success) throw new KnowledgeError('NOT_FOUND', 404);
   return result.data;
 }
-async function ownedBrand(context: Context, brandId: string) {
+export async function ownedBrand(context: Context, brandId: string) {
   const result = await context.supabase
     .from('brands')
     .select(brandColumns)
@@ -93,10 +96,16 @@ export async function updateBrand(request: Request, brandId: string) {
   const input = await knowledgeJson(
     request,
     z.union([
-      z.object({ profile: brandInputSchema }).strict(),
+      z
+        .object({ profile: brandInputSchema, extraction: extractionProofSchema.optional() })
+        .strict(),
       z.object({ archived: z.boolean() }).strict(),
     ]),
   );
+  if ('profile' in input && input.extraction) {
+    const { assertExtractionCurrent } = await import('./extraction');
+    await assertExtractionCurrent(context, brand.id, input.extraction.checksum);
+  }
   const result =
     'profile' in input
       ? await context.supabase.rpc('save_brand', {
@@ -114,7 +123,25 @@ export async function updateBrand(request: Request, brandId: string) {
 export async function sourcePages(request: Request, brandId: string) {
   const context = await apiContext(request);
   const brand = await ownedBrand(context, brandId);
-  return { pages: discoverFixturePages(brand.website_url) };
+  const env = getServerEnv();
+  if (env.CRAWLER_PROVIDER === 'fixture') return { pages: discoverFixturePages(brand.website_url) };
+  if (!deploymentRuntime(env) || env.CRAWLER_PROVIDER !== 'simple')
+    throw new KnowledgeError('KNOWLEDGE_UNAVAILABLE', 503);
+  if (!['owner', 'admin'].includes(context.organization.role))
+    throw new KnowledgeError('FORBIDDEN', 403);
+  await enforceMutationRateLimit('knowledge', context.organization.id);
+  if (brand.status !== 'active') throw new KnowledgeError('BRAND_ARCHIVED', 409);
+  const { plan_key: planKey } = await requireActiveProviderPlan(context.organization.id);
+  const maxPages = planKey === 'growth' ? env.MAX_GROWTH_CRAWL_PAGES : env.MAX_SOLO_CRAWL_PAGES;
+  return {
+    pages: await new SimpleCrawlerProvider({ timeoutMs: 12_000 }).discoverPages(
+      {
+        url: brand.website_url,
+        approvedDomains: [new URL(brand.website_url).hostname],
+      },
+      Math.min(maxPages, 100),
+    ),
+  };
 }
 export async function addSource(request: Request, brandId: string) {
   const context = await apiContext(request, true);

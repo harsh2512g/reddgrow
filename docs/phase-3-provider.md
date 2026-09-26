@@ -10,7 +10,7 @@ The local pipeline uses `REDDIT_PROVIDER=mock`, `AI_PROVIDER=mock`, console emai
 
 `evaluateOpportunity` takes validated brand/profile, normalized post/rules, keyword states, competitor IDs, up to eight included knowledge chunks, and an injected clock. It returns either `{kind: 'filtered', reason}` or `{kind: 'scored', evaluation}`. Evaluation field names match the PostgreSQL publication contract. The worker supplies durable identity, tenant checks, duplicate detection, scheduling, leases and transactional plan allocation.
 
-The AI interface accepts validated structured `opportunity.evaluate`, `keyword.suggest` and `subreddit.suggest` tasks. Mock evaluation uses deterministic phrase/intent rules and clearly identifies itself as lexical development assessment. It is not real language-model inference. Real AI selection still fails closed because a live adapter has not been implemented or verified.
+The AI interface accepts validated structured `opportunity.evaluate`, `keyword.suggest` and `subreddit.suggest` tasks. Mock evaluation uses deterministic phrase/intent rules and clearly identifies itself as lexical development assessment. It is not real language-model inference. The later AI adapter and explicit deployment profile are implemented and transport-tested; local selection remains mock. See [deployment instructions](deployment.md) for the current activation boundary. No live AI request was verified.
 
 ## Deterministic fixtures
 

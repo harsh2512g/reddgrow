@@ -1,4 +1,5 @@
 import 'server-only';
+import { deploymentRuntime } from '../env/runtime';
 import { notFound } from 'next/navigation';
 import { z } from 'zod';
 import { requireOrganization } from '@/lib/organizations/server';
@@ -17,6 +18,7 @@ import {
 } from './schema';
 
 export function localOpportunitiesEnabled() {
+  if (deploymentRuntime(getServerEnv())) return true;
   return (
     process.env.THREADSIGNAL_LOCAL === '1' &&
     process.env.THREADSIGNAL_SERVICES_READY === '1' &&
@@ -24,11 +26,11 @@ export function localOpportunitiesEnabled() {
   );
 }
 export const communityColumns =
-  'id,name,display_name,description,subscriber_count,is_nsfw,last_synced_at' as const;
+  'id,provider,name,display_name,description,subscriber_count,is_nsfw,last_synced_at' as const;
 const opportunityColumns =
   `id,organization_id,brand_id,subreddit_id,status,summary,user_need,intent_category,risk_level,semantic_relevance,buying_intent,freshness,engagement_velocity,rule_fit,competitor_context,penalty_score,final_score,suggested_action,is_blocked,risk_reasons,matched_capabilities,missing_capabilities,matched_competitor_ids,reasoning_summary,knowledge_citations,evaluated_at,created_at` as const;
 const feedColumns =
-  `${opportunityColumns},post:reddit_posts!inner(id,title,body,permalink,created_at_provider,score,num_comments,is_deleted,is_locked,is_archived),subreddit:subreddits!inner(${communityColumns})` as const;
+  `${opportunityColumns},opportunity_workflow_status,post:reddit_posts!inner(id,provider,title,body:body_excerpt,permalink,created_at_provider,score,num_comments,is_deleted,is_locked,is_archived),subreddit:subreddits!inner(${communityColumns})` as const;
 function checked<T>(result: { data: T; error: unknown }, message: string): T {
   if (result.error) throw new Error(message);
   return result.data;
@@ -251,7 +253,8 @@ export async function loadOpportunities(input: unknown) {
       .order(sortColumn, { ascending: false })
       .order('id', { ascending: false })
       .limit(25);
-    if (filters.status) query = query.eq('status', filters.status);
+    // Computed fields are filterable by PostgREST but are not generated table columns.
+    if (filters.status) query = query.filter('opportunity_workflow_status', 'eq', filters.status);
     if (filters.risk) query = query.eq('risk_level', filters.risk);
     if (filters.intent) query = query.eq('intent_category', filters.intent);
     if (filters.subreddit) query = query.eq('subreddit_id', filters.subreddit);
@@ -331,7 +334,7 @@ export async function loadOpportunity(id: string) {
     await workspace.supabase
       .from('opportunities')
       .select(
-        `${opportunityColumns},post:reddit_posts!inner(id,title,body,permalink,created_at_provider,score,num_comments,is_deleted,is_locked,is_archived),subreddit:subreddits!inner(${communityColumns})`,
+        `${opportunityColumns},opportunity_workflow_status,post:reddit_posts!inner(id,provider,title,body,permalink,created_at_provider,score,num_comments,is_deleted,is_locked,is_archived),subreddit:subreddits!inner(${communityColumns})`,
       )
       .eq('organization_id', workspace.organization.id)
       .eq('id', id)

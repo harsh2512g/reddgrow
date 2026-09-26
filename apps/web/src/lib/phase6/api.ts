@@ -1,4 +1,5 @@
 import 'server-only';
+import { apiErrorResponse } from '../api-errors';
 import { createHash, randomBytes } from 'node:crypto';
 import { unstable_rethrow } from 'next/navigation';
 import { z } from 'zod';
@@ -38,13 +39,7 @@ export async function attributionRoute(action: () => Promise<unknown>) {
   } catch (error) {
     unstable_rethrow(error);
     const failure = attributionFailure(error);
-    return Response.json(
-      { error: failure.error },
-      {
-        status: failure.status,
-        headers: { 'Cache-Control': 'no-store', 'X-Request-ID': failure.error.requestId },
-      },
-    );
+    return apiErrorResponse(failure);
   }
 }
 export async function attributionContext(

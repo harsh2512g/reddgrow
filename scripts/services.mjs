@@ -1,6 +1,6 @@
 import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { state, assertInside } from './isolation.mjs';
+import { root, state, assertInside, colimaHomeFor } from './isolation.mjs';
 import {
   execute,
   prepareSupabase,
@@ -64,7 +64,7 @@ if (operation === 'start') {
 } else if (operation === 'stop') {
   // Retained credentials must not make a stopped or incomplete stack look current.
   rmSync(assertInside(join(state, 'runtime.json')), { force: true });
-  if (!existsSync(assertInside(join(state, 'colima/default')))) {
+  if (!existsSync(assertInside(join(colimaHomeFor(root), 'default')))) {
     process.stdout.write('No project-local Colima profile exists.\n');
   } else {
     const failures = stopServicesSafely({

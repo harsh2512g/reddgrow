@@ -1,4 +1,5 @@
 import { z } from 'zod';
+declare const __THREADSIGNAL_EXTENSION_DEPLOYMENT__: boolean | undefined;
 
 export type RedditLocation = {
   postId: string;
@@ -14,19 +15,20 @@ export function normalizeRedditUrl(
   if (input.length > 2048 || /[\s\\]/.test(input)) return null;
   try {
     const url = new URL(input);
-    if (url.username || url.password || url.port) {
-      if (!(
-        options.allowFixture &&
+    // A deployment artifact removes local fixture authority at bundle time.
+    let allowFixture = false;
+    let fixture = false;
+    if (
+      typeof __THREADSIGNAL_EXTENSION_DEPLOYMENT__ === 'undefined' ||
+      !__THREADSIGNAL_EXTENSION_DEPLOYMENT__
+    ) {
+      allowFixture = options.allowFixture ?? false;
+      fixture =
+        allowFixture &&
         url.origin === 'http://127.0.0.1:3000' &&
-        !url.username &&
-        !url.password
-      ))
-        return null;
+        url.pathname.startsWith('/extension-fixture/reddit/');
     }
-    const fixture =
-      options.allowFixture &&
-      url.origin === 'http://127.0.0.1:3000' &&
-      url.pathname.startsWith('/extension-fixture/reddit/');
+    if (url.username || url.password || (url.port && !fixture)) return null;
     if (
       !fixture &&
       (url.protocol !== 'https:' || !/^(www\.|old\.|new\.)?reddit\.com$/.test(url.hostname))
@@ -42,12 +44,10 @@ export function normalizeRedditUrl(
     const rawPostId = match[2]!.toLowerCase();
     // The original local provider used fixture_001 as its ID and fixture001 in
     // permalinks. Reconcile this synthetic alias only in explicitly local mode.
-    const postId = options.allowFixture
-      ? rawPostId.replace(/^fixture_?(\d{3})$/, 'fixture_$1')
-      : rawPostId;
+    const postId = allowFixture ? rawPostId.replace(/^fixture_?(\d{3})$/, 'fixture_$1') : rawPostId;
     const commentId = match[3]?.toLowerCase() ?? null;
     if (
-      !options.allowFixture &&
+      !allowFixture &&
       (!/^[a-z0-9]+$/.test(postId) || (commentId && !/^[a-z0-9]+$/.test(commentId)))
     )
       return null;

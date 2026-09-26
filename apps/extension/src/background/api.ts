@@ -1,4 +1,8 @@
-export const LOCAL_APP_ORIGIN = 'http://127.0.0.1:3000';
+declare const __THREADSIGNAL_EXTENSION_API_ORIGIN__: string | undefined;
+export const LOCAL_APP_ORIGIN =
+  typeof __THREADSIGNAL_EXTENSION_API_ORIGIN__ === 'string'
+    ? __THREADSIGNAL_EXTENSION_API_ORIGIN__
+    : 'http://127.0.0.1:3000';
 const RESPONSE_LIMIT = 512_000;
 
 export class ExtensionError extends Error {

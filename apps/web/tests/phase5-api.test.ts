@@ -58,6 +58,24 @@ beforeEach(() => {
   });
 });
 describe('extension API boundary', () => {
+  it('ignores a forged correlation ID while preserving authorized error CORS', async () => {
+    const req = request(
+      { code: 'invalid' },
+      { 'X-Request-ID': '10000000-0000-4000-8000-000000000001' },
+    );
+    const response = await extensionRoute(req, () => exchangeConnection(req), true);
+    expect(response.status).toBe(400);
+    expect(response.headers.get('access-control-allow-origin')).toBe(extensionOrigin);
+    expect(response.headers.get('vary')).toBe('Origin');
+    expect(response.headers.get('x-request-id')).not.toBe(req.headers.get('x-request-id'));
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: 'INVALID_INPUT',
+        details: {},
+        requestId: response.headers.get('x-request-id'),
+      },
+    });
+  });
   it('accepts Next loopback normalization only with the exact incoming API Host', async () => {
     const req = new NextRequest(request({ code: 'deliberately-invalid-test-input' }));
     expect(new URL(req.url).origin).toBe('http://localhost:3000');

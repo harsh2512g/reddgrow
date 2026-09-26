@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { apiError } from '../api-errors';
 import { KnowledgeError } from '../knowledge/http';
 import { AttributionError } from '../phase6/errors';
 
@@ -72,7 +73,7 @@ export function billingFailure(error: unknown) {
   }
   if (code === 'RATE_LIMITED') status = 429;
   if (!Object.hasOwn(messages, code)) code = 'UNAVAILABLE';
-  return { status, error: { code, message: messages[code]!, requestId: crypto.randomUUID() } };
+  return { status, error: apiError(code, messages[code]!) };
 }
 export function checked<T>(result: { data: T; error: unknown }): T {
   if (result.error) throw result.error;

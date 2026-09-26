@@ -1,4 +1,5 @@
 import 'server-only';
+import { runtimeRedisOptions } from '../env/runtime';
 import { createHash } from 'node:crypto';
 import { Redis } from 'ioredis';
 import { tokenSchema } from '@threadsignal/extension-contracts';
@@ -28,32 +29,21 @@ function endpoint(request: Request): string {
 export async function enforceExtensionRateLimit(request: Request): Promise<void> {
   let redis: Redis | undefined;
   try {
-    if (process.env.THREADSIGNAL_LOCAL !== '1' || process.env.THREADSIGNAL_SERVICES_READY !== '1') {
-      throw new ExtensionError('UNAVAILABLE', 503);
-    }
     const env = getServerEnv();
-    const url = new URL(env.REDIS_URL);
-    if (
-      env.THREADSIGNAL_SUPABASE_MODE !== 'local' ||
-      url.protocol !== 'redis:' ||
-      url.hostname !== '127.0.0.1' ||
-      url.port !== '56379' ||
-      !['', '/', '/0'].includes(url.pathname) ||
-      url.username ||
-      url.password ||
-      url.search ||
-      url.hash
-    )
-      throw new ExtensionError('UNAVAILABLE', 503);
+    const connection = runtimeRedisOptions(env);
+    const prefix =
+      env.THREADSIGNAL_SUPABASE_MODE === 'deployment'
+        ? `threadsignal:extension:${env.THREADSIGNAL_SUPABASE_PROJECT_REF}`
+        : PREFIX;
 
     const operation = endpoint(request);
-    const keys = [`${PREFIX}:endpoint:${operation}`];
+    const keys = [`${prefix}:endpoint:${operation}`];
     const limits = [300, WINDOW_MS];
     if (operation === 'exchange') {
-      keys.push(`${PREFIX}:exchange:global`);
+      keys.push(`${prefix}:exchange:global`);
       limits.push(30, WINDOW_MS);
     } else {
-      keys.push(`${PREFIX}:token-operations:global`);
+      keys.push(`${prefix}:token-operations:global`);
       limits.push(600, WINDOW_MS);
       const authorization = request.headers.get('authorization') ?? '';
       const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
@@ -63,10 +53,11 @@ export async function enforceExtensionRateLimit(request: Request): Promise<void>
       const digest = createHash('sha256')
         .update(valid.success ? valid.data : 'invalid-token')
         .digest('hex');
-      keys.push(`${PREFIX}:token:${digest}`);
+      keys.push(`${prefix}:token:${digest}`);
       limits.push(120, WINDOW_MS);
     }
-    redis = new Redis(env.REDIS_URL, {
+    redis = new Redis({
+      ...connection,
       lazyConnect: true,
       connectTimeout: 2_000,
       commandTimeout: 2_000,

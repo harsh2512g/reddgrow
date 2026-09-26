@@ -5,7 +5,8 @@ import { createLogger } from '@threadsignal/shared';
 import type { WorkerConfig } from '../config';
 const interval = 60_000;
 export async function startAnalyticsWorker(sql: Sql, config: WorkerConfig) {
-  if (config.mode !== 'local') throw new Error('Verified Supabase development runtime required.');
+  if (config.mode !== 'local' && config.mode !== 'deployment')
+    throw new Error('Verified Supabase development runtime required.');
   const logger = createLogger({ service: 'aggregate-analytics', level: config.logLevel });
   const connection = { ...config.redis, maxRetriesPerRequest: null, connectTimeout: 2000 };
   const queue = new Queue('aggregate-analytics', {

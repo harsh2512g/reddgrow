@@ -1,7 +1,6 @@
-import { join } from 'node:path';
-import { state } from './isolation.mjs';
+import { root, dockerSocketFor } from './isolation.mjs';
 
-export const projectDockerSocket = `unix://${join(state, 'colima/default/docker.sock')}`;
+export const projectDockerSocket = `unix://${dockerSocketFor(root)}`;
 export const serviceDefinitions = {
   database: { name: 'supabase_db_threadsignal', containerPort: '5432/tcp', hostPort: '54322' },
   redis: { name: 'threadsignal-redis-1', containerPort: '6379/tcp', hostPort: '56379' },

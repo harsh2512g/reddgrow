@@ -1,3 +1,4 @@
+import { apiError, apiErrorResponse } from '../api-errors';
 const definitions = {
   AUTH_UNAVAILABLE: {
     status: 503,
@@ -40,14 +41,8 @@ export function safeAuthError(error: unknown): AuthActionError {
 
 export function authErrorResponse(error: unknown): Response {
   const safe = safeAuthError(error);
-  return Response.json(
-    { error: { code: safe.code, message: safe.message } },
-    {
-      status: safe.status,
-      headers: {
-        'Cache-Control': 'no-store',
-        ...(safe.retryAfter ? { 'Retry-After': String(safe.retryAfter) } : {}),
-      },
-    },
+  return apiErrorResponse(
+    { status: safe.status, error: apiError(safe.code, safe.message) },
+    safe.retryAfter ? { 'Retry-After': String(safe.retryAfter) } : undefined,
   );
 }

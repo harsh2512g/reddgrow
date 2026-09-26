@@ -4,12 +4,16 @@ import { startWorker } from '../src/runtime';
 
 const mocks = vi.hoisted(() => ({
   database: vi.fn(),
+  redis: vi.fn(),
+  authority: vi.fn(async () => undefined),
   queues: vi.fn(),
   processors: vi.fn(),
   listen: vi.fn(),
   sql: vi.fn(async () => []),
   running: true,
 }));
+
+vi.mock('@threadsignal/database', () => ({ verifyDeploymentDatabaseAuthority: mocks.authority }));
 
 vi.mock('postgres', () => ({
   default: (options: unknown) => {
@@ -24,6 +28,9 @@ vi.mock('postgres', () => ({
 }));
 vi.mock('ioredis', () => ({
   Redis: class {
+    constructor(options: unknown) {
+      mocks.redis(options);
+    }
     on() {}
     async connect() {}
     async ping() {
@@ -188,5 +195,72 @@ describe('runtime isolation at connection boundaries', () => {
     } finally {
       await worker.stop();
     }
+  });
+  it('starts every processing subsystem only in the explicit deployment profile and carries TLS to every queue', async () => {
+    const config = parseWorkerConfig({
+      ...hosted,
+      NODE_ENV: 'production',
+      THREADSIGNAL_WORKER_MODE: 'deployment',
+      THREADSIGNAL_SUPABASE_MODE: 'deployment',
+      THREADSIGNAL_DEPLOYMENT_APPROVED: 'true',
+      THREADSIGNAL_RUNTIME_ROLE: 'worker',
+      NEXT_PUBLIC_APP_URL: 'https://app.threadsignal.example.com',
+      DATABASE_URL: `postgresql://threadsignal_runtime_worker:synthetic-password@db.${projectRef}.supabase.co:5432/postgres`,
+      REDIS_URL: 'rediss://default:synthetic-password@redis.threadsignal.example.com:6379/0',
+    });
+    const worker = await startWorker(config);
+    try {
+      expect(mocks.database).toHaveBeenCalledWith(
+        expect.objectContaining({
+          username: 'threadsignal_runtime_worker',
+          ssl: expect.objectContaining({ rejectUnauthorized: true }),
+        }),
+      );
+      expect(mocks.redis).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tls: { rejectUnauthorized: true, servername: 'redis.threadsignal.example.com' },
+        }),
+      );
+      for (const constructor of [mocks.queues, mocks.processors]) {
+        expect(constructor.mock.calls.length).toBeGreaterThan(2);
+        for (const [, options] of constructor.mock.calls)
+          expect(options).toMatchObject({
+            prefix: `threadsignal-deployment-${projectRef}`,
+            connection: { tls: { rejectUnauthorized: true } },
+          });
+      }
+      expect(mocks.listen).toHaveBeenCalledWith(3001, '0.0.0.0');
+      expect(mocks.authority).toHaveBeenCalledWith(expect.any(Function), 'worker');
+      expect(await worker.readiness()).toMatchObject({
+        checks: {
+          knowledge: 'up',
+          privacy: 'up',
+          opportunities: 'up',
+          drafts: 'up',
+          analytics: 'up',
+          notifications: 'up',
+        },
+      });
+    } finally {
+      await worker.stop();
+    }
+  });
+  it('refuses privileged or drifted deployment database authority before opening any queue', async () => {
+    mocks.authority.mockRejectedValueOnce(new Error('Unsafe deployment role'));
+    const config = parseWorkerConfig({
+      ...hosted,
+      NODE_ENV: 'production',
+      THREADSIGNAL_WORKER_MODE: 'deployment',
+      THREADSIGNAL_SUPABASE_MODE: 'deployment',
+      THREADSIGNAL_DEPLOYMENT_APPROVED: 'true',
+      THREADSIGNAL_RUNTIME_ROLE: 'worker',
+      NEXT_PUBLIC_APP_URL: 'https://app.threadsignal.example.com',
+      DATABASE_URL: `postgresql://threadsignal_runtime_worker:synthetic-password@db.${projectRef}.supabase.co:5432/postgres`,
+      REDIS_URL: 'rediss://default:synthetic-password@redis.threadsignal.example.com:6379/0',
+    });
+    await expect(startWorker(config)).rejects.toThrow('Unsafe deployment role');
+    expect(mocks.queues).not.toHaveBeenCalled();
+    expect(mocks.processors).not.toHaveBeenCalled();
+    expect(mocks.listen).not.toHaveBeenCalled();
   });
 });

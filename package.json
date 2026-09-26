@@ -36,7 +36,8 @@
     "db:lint": "node scripts/database.mjs lint",
     "secrets:check": "node scripts/check-secrets.mjs",
     "extension:build": "pnpm --filter @threadsignal/extension build",
-    "test:extension": "playwright test --config playwright.extension.config.ts"
+    "test:extension": "playwright test --config playwright.extension.config.ts",
+    "cleanroom:verify": "node scripts/cleanroom.mjs verify"
   },
   "packageManager": "pnpm@12.4.1",
   "devDependencies": {

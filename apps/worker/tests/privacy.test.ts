@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { LocalPrivacyStorage, MAX_EXPORT_BYTES } from '../src/jobs/privacy';
+import { LocalPrivacyStorage, WorkerPrivacyStorage, MAX_EXPORT_BYTES } from '../src/jobs/privacy';
 
 describe('privacy Storage transport boundary', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -86,5 +86,30 @@ describe('privacy Storage transport boundary', () => {
     await expect(storage.remove('privacy-exports', path)).rejects.toThrow(
       /^PRIVACY_STORAGE_UNAVAILABLE$/,
     );
+  });
+  it('uses only the explicitly validated deployment project and a server apikey for private exports', async () => {
+    const projectRef = 'abcdefghijklmnopqrst';
+    const deployed = {
+      mode: 'deployment' as const,
+      projectRef,
+      baseUrl: `https://${projectRef}.supabase.co`,
+      key: `sb_secret_${'synthetic'.repeat(3)}`,
+    };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
+    vi.stubGlobal('fetch', fetcher);
+    const path = `${randomUUID()}/${randomUUID()}/${randomUUID()}.json.gz`;
+    await new WorkerPrivacyStorage(deployed).writeExport(path, new Uint8Array([31, 139]));
+    expect(fetcher.mock.calls[0]?.[0]).toBe(
+      `${deployed.baseUrl}/storage/v1/object/privacy-exports/${path}`,
+    );
+    expect(fetcher.mock.calls[0]?.[1]).toMatchObject({
+      redirect: 'error',
+      headers: { apikey: deployed.key },
+    });
+    expect(fetcher.mock.calls[0]?.[1]?.headers).not.toHaveProperty('Authorization');
+    expect(
+      () => new WorkerPrivacyStorage({ ...deployed, baseUrl: 'https://unrelated.example.com' }),
+    ).toThrow();
+    expect(() => new LocalPrivacyStorage(deployed)).toThrow('PRIVACY_STORAGE_UNAVAILABLE');
   });
 });

@@ -1,4 +1,5 @@
 import 'server-only';
+import { apiErrorResponse } from '../api-errors';
 import { unstable_rethrow } from 'next/navigation';
 import { z } from 'zod';
 import { createBillingProvider, StripeBillingProvider } from '@threadsignal/billing';
@@ -26,10 +27,7 @@ export async function billingRoute(action: () => Promise<unknown>) {
   } catch (error) {
     unstable_rethrow(error);
     const failure = billingFailure(error);
-    return Response.json(
-      { error: failure.error },
-      { status: failure.status, headers: { 'Cache-Control': 'no-store' } },
-    );
+    return apiErrorResponse(failure);
   }
 }
 export async function billingContext(

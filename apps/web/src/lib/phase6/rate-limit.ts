@@ -1,4 +1,5 @@
 import 'server-only';
+import { runtimeRedisOptions } from '../env/runtime';
 import { createHash } from 'node:crypto';
 import { Redis } from 'ioredis';
 import { getServerEnv } from '../env/server';
@@ -9,35 +10,26 @@ export async function enforceAttributionLimit(
   scope?: string,
 ) {
   const env = getServerEnv();
-  let url: URL;
+  let connection;
   try {
-    url = new URL(env.REDIS_URL);
+    connection = runtimeRedisOptions(env);
   } catch {
     throw new AttributionError('UNAVAILABLE', 503);
   }
-  if (
-    process.env.THREADSIGNAL_LOCAL !== '1' ||
-    process.env.THREADSIGNAL_SERVICES_READY !== '1' ||
-    url.protocol !== 'redis:' ||
-    url.hostname !== '127.0.0.1' ||
-    url.port !== '56379' ||
-    env.THREADSIGNAL_SUPABASE_MODE !== 'local' ||
-    !['', '/', '/0'].includes(url.pathname) ||
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash
-  )
-    throw new AttributionError('UNAVAILABLE', 503);
-  const keys = [`threadsignal:attribution:local:${operation}:global`],
+  const namespace =
+    env.THREADSIGNAL_SUPABASE_MODE === 'deployment'
+      ? env.THREADSIGNAL_SUPABASE_PROJECT_REF
+      : 'local';
+  const keys = [`threadsignal:attribution:${namespace}:${operation}:global`],
     limits = [operation === 'redirect' ? 1200 : 600, 60000];
   if (scope) {
     keys.push(
-      `threadsignal:attribution:local:${operation}:scope:${createHash('sha256').update(scope.slice(0, 256)).digest('hex')}`,
+      `threadsignal:attribution:${namespace}:${operation}:scope:${createHash('sha256').update(scope.slice(0, 256)).digest('hex')}`,
     );
     limits.push(operation === 'redirect' ? 120 : 60, 60000);
   }
-  const redis = new Redis(env.REDIS_URL, {
+  const redis = new Redis({
+    ...connection,
     lazyConnect: true,
     connectTimeout: 1500,
     commandTimeout: 1500,

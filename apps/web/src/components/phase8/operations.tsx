@@ -161,9 +161,14 @@ export function OperationsSummary({ overview }: { overview: OperationsOverview }
             ))}
           </dl>
           <p className="mt-5 text-xs leading-6 text-muted-foreground">
-            AI usage: {overview.metrics.ai_input_tokens.toLocaleString('en')} input and{' '}
-            {overview.metrics.ai_output_tokens.toLocaleString('en')} output tokens. Estimated cost:
-            ${overview.metrics.ai_estimated_cost_usd.toFixed(4)}. Mock usage carries no paid tokens.
+            Reported AI usage: {overview.metrics.ai_input_tokens.toLocaleString('en')} input and{' '}
+            {overview.metrics.ai_output_tokens.toLocaleString('en')} output tokens. Known estimated
+            cost: ${overview.metrics.ai_estimated_cost_usd.toFixed(4)}. Mock usage carries no paid
+            tokens.
+            {overview.metrics.ai_unpriced_tasks > 0 &&
+              ` ${overview.metrics.ai_unpriced_tasks} tasks have no price estimate; this is not the total bill.`}
+            {overview.metrics.ai_unreported_usage_tasks > 0 &&
+              ` ${overview.metrics.ai_unreported_usage_tasks} tasks have incomplete provider token receipts.`}
           </p>
         </section>
       </div>

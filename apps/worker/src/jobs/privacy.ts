@@ -115,7 +115,7 @@ export const EXPORT_SECTIONS = [
   [
     'ai_task_usage',
     'id',
-    'id,brand_id,draft_id,job_id,task,provider,model,input_tokens,output_tokens,estimated_cost_usd,created_at',
+    'id,brand_id,draft_id,job_id,operation_id,task,provider,model,input_tokens,output_tokens,estimated_cost_usd,created_at',
   ],
   [
     'billing_checkout_requests',
@@ -145,16 +145,18 @@ export interface PrivacyStorage {
   remove(bucket: 'privacy-exports' | 'knowledge-private', path: string): Promise<void>;
 }
 
-/** Fixed local Supabase endpoint; no inherited configuration or hosted credentials. */
-export class LocalPrivacyStorage implements PrivacyStorage {
+/** Explicit validated worker Storage authority; no inherited credentials or endpoint discovery. */
+export class WorkerPrivacyStorage implements PrivacyStorage {
   private readonly knowledge: WorkerKnowledgeStorage;
   constructor(private readonly config: WorkerStorageConfig) {
-    if (config.mode !== 'local' || config.baseUrl !== 'http://127.0.0.1:54321' || !config.key)
+    if (config.mode === 'personal-development' || !config.key)
       throw new Error('PRIVACY_STORAGE_UNAVAILABLE');
     this.knowledge = new WorkerKnowledgeStorage(config);
   }
   private headers() {
-    return { apikey: this.config.key ?? '', Authorization: `Bearer ${this.config.key ?? ''}` };
+    return this.config.mode === 'local'
+      ? { apikey: this.config.key ?? '', Authorization: `Bearer ${this.config.key ?? ''}` }
+      : { apikey: this.config.key ?? '' };
   }
   private async mutate(url: string, request: RequestInit, allowMissing = false) {
     try {
@@ -202,6 +204,14 @@ export class LocalPrivacyStorage implements PrivacyStorage {
       },
       true,
     );
+  }
+}
+
+/** Preserve the strict local constructor used by existing development tests and helpers. */
+export class LocalPrivacyStorage extends WorkerPrivacyStorage {
+  constructor(config: WorkerStorageConfig) {
+    if (config.mode !== 'local') throw new Error('PRIVACY_STORAGE_UNAVAILABLE');
+    super(config);
   }
 }
 
@@ -358,6 +368,7 @@ export async function processPrivacyJob(sql: Sql, id: string, storage: PrivacySt
 /** Bounded sweeps; policy denial is immediate even when physical cleanup is retrying. */
 export async function maintainPrivacy(sql: Sql, storage: PrivacyStorage) {
   await sql`select private.maintain_platform_operations(100)`;
+  await sql`select private.cleanup_expired_invitations(100)`;
   await sql`update public.organization_data_requests set status='expired' where id in (select id from public.organization_data_requests where kind='export' and status='completed' and expires_at<=now() limit 100)`;
   const objects = z.array(storageObjectSchema).parse(
     await sql`select s.bucket_id,s.name from storage.objects s where
@@ -385,10 +396,11 @@ export async function maintainPrivacy(sql: Sql, storage: PrivacyStorage) {
 }
 
 export async function startPrivacyWorker(sql: Sql, config: WorkerConfig) {
-  if (config.mode !== 'local') throw new Error('Verified local Supabase runtime required.');
+  if (config.mode !== 'local' && config.mode !== 'deployment')
+    throw new Error('Verified Supabase runtime required.');
   const logger = createLogger({ service: 'privacy-worker', level: config.logLevel });
   const observability = createObservability({});
-  const storage = new LocalPrivacyStorage(config.storage);
+  const storage = new WorkerPrivacyStorage(config.storage);
   const connection = { ...config.redis, maxRetriesPerRequest: null, connectTimeout: 2000 };
   const queue = new Queue('privacy', {
     connection,

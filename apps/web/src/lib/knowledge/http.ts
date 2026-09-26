@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { apiError, apiErrorResponse } from '../api-errors';
 
 export class KnowledgeError extends Error {
   constructor(
@@ -9,6 +10,12 @@ export class KnowledgeError extends Error {
   }
 }
 const messages: Readonly<Record<string, string>> = {
+  PLAN_INACTIVE: 'Your workspace plan is inactive. Existing knowledge remains available to read.',
+  PLAN_UNAVAILABLE: 'Your workspace plan could not be checked. Please try again.',
+  EXTRACTION_STALE:
+    'Your source evidence changed. Generate and review fresh suggestions before saving.',
+  EXTRACTION_INVALID:
+    'The extracted suggestions did not match the source evidence. Try again or edit your profile manually.',
   KNOWLEDGE_UNAVAILABLE: 'Knowledge processing is not enabled for this workspace yet.',
   WORKSPACE_CHANGED: 'Your active workspace changed. Reload this page before saving.',
   FORBIDDEN: 'Your role cannot make this change.',
@@ -23,7 +30,6 @@ const messages: Readonly<Record<string, string>> = {
   SOURCE_LIMIT: 'This brand has reached its source limit.',
   BRAND_ARCHIVED: 'Restore this brand before adding or processing knowledge.',
   TRIAL_EXPIRED: 'The workspace trial has expired.',
-  PLAN_UNAVAILABLE: 'The workspace plan is unavailable.',
   NOT_FOUND: 'This item is unavailable in your workspace.',
   UNAPPROVED_DOMAIN: 'Select pages on the approved brand website.',
   STORAGE_UNAVAILABLE: 'The private file could not be stored. Try again.',
@@ -34,10 +40,16 @@ const messages: Readonly<Record<string, string>> = {
 export function knowledgeErrorResponse(error: unknown) {
   const known =
     error instanceof KnowledgeError ? error : new KnowledgeError('PROCESSING_FAILED', 500);
-  return Response.json(
-    { error: { code: known.code, message: messages[known.code] ?? messages.PROCESSING_FAILED } },
-    { status: known.status, headers: { 'Cache-Control': 'no-store' } },
-  );
+  return apiErrorResponse({
+    status: known.status,
+    error: apiError(known.code, messages[known.code] ?? messages.PROCESSING_FAILED!),
+  });
+}
+/** Validate caller input separately from database/output schemas: bad server data is still 500. */
+export function knowledgeInput<T>(input: unknown, schema: z.ZodType<T>): T {
+  const parsed = schema.safeParse(input);
+  if (!parsed.success) throw new KnowledgeError('INVALID_INPUT', 400);
+  return parsed.data;
 }
 export function checkDatabaseError(error: { message: string; code?: string } | null) {
   if (!error) return;

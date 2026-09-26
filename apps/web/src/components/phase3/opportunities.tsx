@@ -15,7 +15,12 @@ import {
 } from 'lucide-react';
 import { Button } from '@threadsignal/ui';
 import { dismissalReasonSchema } from '@threadsignal/opportunities';
-import type { FeedFilters, Opportunity, CommunityRule } from '@/lib/phase3/schema';
+import {
+  opportunityWorkflowSchema,
+  type FeedFilters,
+  type Opportunity,
+  type CommunityRule,
+} from '@/lib/phase3/schema';
 import { signalRequest, signalMessage } from '@/lib/phase3/client';
 import { ScoreBadge, RiskBadge, SignalAction, SignalRefresh } from './primitives';
 import { displayDate, KnowledgeEmpty } from '../phase2/primitives';
@@ -263,7 +268,7 @@ export function OpportunityFeed({
             Status
             <select className="field-input mt-2" name="status" defaultValue={filters.status ?? ''}>
               <option value="">All statuses</option>
-              {['new', 'saved', 'monitoring', 'blocked', 'dismissed', 'archived'].map((value) => (
+              {opportunityWorkflowSchema.options.map((value) => (
                 <option key={value} value={value}>
                   {titleCase(value)}
                 </option>
@@ -530,7 +535,9 @@ export function OpportunityFeed({
                   <td className="p-4">
                     <RiskBadge risk={item.risk_level} />
                   </td>
-                  <td className="p-4">{titleCase(item.status)}</td>
+                  <td className="p-4">
+                    {titleCase(item.opportunity_workflow_status ?? item.status)}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -560,7 +567,8 @@ export function OpportunityFeed({
                     )}
                     <span className="font-semibold text-primary">r/{item.subreddit.name}</span>
                     <span>· {ageLabel(item.post.created_at_provider)}</span>
-                    <span>· {titleCase(item.status)}</span>
+                    <span>· {titleCase(item.opportunity_workflow_status ?? item.status)}</span>
+                    {item.post.provider === 'mock' && <span>· Synthetic discussion</span>}
                   </div>
                   <h2 className="text-base font-semibold leading-7 tracking-tight">
                     <Link href={`/app/opportunities/${item.id}`} className="hover:text-primary">
@@ -690,7 +698,10 @@ export function OpportunityWorkspace({
       <section className="panel p-6 sm:p-8">
         <div className="flex items-start justify-between gap-5">
           <div>
-            <p className="eyebrow">r/{item.subreddit.name} · Synthetic discussion</p>
+            <p className="eyebrow">
+              r/{item.subreddit.name}
+              {item.post.provider === 'mock' ? ' · Synthetic discussion' : ''}
+            </p>
             <h1 className="mt-4 max-w-3xl text-2xl font-semibold leading-tight tracking-tight sm:text-3xl">
               {item.post.title ?? 'This discussion was deleted.'}
             </h1>
@@ -698,7 +709,7 @@ export function OpportunityWorkspace({
               <span>{displayDate(item.post.created_at_provider)}</span>
               <span>{item.post.num_comments} comments</span>
               <span>{item.post.score} post score</span>
-              <span>{titleCase(item.status)}</span>
+              <span>{titleCase(item.opportunity_workflow_status ?? item.status)}</span>
               <RiskBadge risk={item.risk_level} />
             </div>
           </div>
@@ -729,7 +740,8 @@ export function OpportunityWorkspace({
             rel="noopener noreferrer"
             className="mt-5 inline-flex items-center gap-1 text-xs font-semibold text-primary"
           >
-            Original Reddit URL (fixture) <ArrowUpRight size={14} />
+            Original Reddit URL{item.post.provider === 'mock' ? ' (fixture)' : ''}{' '}
+            <ArrowUpRight size={14} />
           </a>
         )}
       </section>
@@ -760,7 +772,7 @@ export function OpportunityWorkspace({
             <h2 className="text-lg font-semibold">An explainable score.</h2>
             <p className="mt-2 text-xs leading-6 text-muted-foreground">
               A weighted estimate from product fit, intent, timing, conversation activity, and
-              community context. Mock AI evaluation is active.
+              community context. Review the explanation and supporting sources.
             </p>
             <div className="mt-6 space-y-5">
               {scoreParts.map(([key, label, weight]) => (
@@ -844,7 +856,7 @@ export function OpportunityWorkspace({
                 ))
               ) : (
                 <p className="text-xs leading-6 text-muted-foreground">
-                  No additional risk flags were found by the mock evaluator. Review the community’s
+                  No additional risk flags were found by the evaluator. Review the community’s
                   current rules yourself.
                 </p>
               )}

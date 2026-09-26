@@ -4,6 +4,7 @@ import { createLogger, createObservability } from '@threadsignal/shared';
 import { Queue, Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import postgres from 'postgres';
+import { verifyDeploymentDatabaseAuthority } from '@threadsignal/database';
 import type { WorkerConfig } from './config';
 import { startKnowledgeWorker } from './jobs/knowledge';
 import { startRedditWorker } from './jobs/reddit';
@@ -182,13 +183,16 @@ export async function startWorker(config: WorkerConfig) {
   try {
     await redis.connect();
     await sql`select 1 as healthy`;
+    if (config.mode === 'deployment') await verifyDeploymentDatabaseAuthority(sql, 'worker');
     knowledge = await startKnowledgeWorker(sql, config);
-    if (config.mode === 'local') reddit = await startRedditWorker(sql, config);
-    if (config.mode === 'local') drafts = await startDraftWorker(sql, config);
-    if (config.mode === 'local') extensionCleanup = await startExtensionCleanup(sql, config);
-    if (config.mode === 'local') analytics = await startAnalyticsWorker(sql, config);
-    if (config.mode === 'local') notifications = await startNotificationWorker(sql, config);
-    if (config.mode === 'local') privacy = await startPrivacyWorker(sql, config);
+    if (config.mode !== 'personal-development') reddit = await startRedditWorker(sql, config);
+    if (config.mode !== 'personal-development') drafts = await startDraftWorker(sql, config);
+    if (config.mode !== 'personal-development')
+      extensionCleanup = await startExtensionCleanup(sql, config);
+    if (config.mode !== 'personal-development') analytics = await startAnalyticsWorker(sql, config);
+    if (config.mode !== 'personal-development')
+      notifications = await startNotificationWorker(sql, config);
+    if (config.mode !== 'personal-development') privacy = await startPrivacyWorker(sql, config);
     const connection = { ...config.redis, maxRetriesPerRequest: null, connectTimeout: 2_000 };
     queue = new Queue<HeartbeatPayload, HeartbeatResult, 'heartbeat'>(HEARTBEAT_QUEUE, {
       connection,
@@ -238,7 +242,7 @@ export async function startWorker(config: WorkerConfig) {
 
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
-      server.listen(config.port, '127.0.0.1', () => {
+      server.listen(config.port, config.mode === 'deployment' ? '0.0.0.0' : '127.0.0.1', () => {
         server.off('error', reject);
         resolve();
       });

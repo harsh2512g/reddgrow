@@ -1,16 +1,18 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import postgres from 'postgres';
-import { createAIProvider } from '@threadsignal/ai';
+import { createAIProvider, providerEmbeddingIdentity, type AIProvider } from '@threadsignal/ai';
 import { demoBrand } from '@threadsignal/knowledge';
 import { extractManualText, prepareDocuments } from '@threadsignal/knowledge/pipeline';
-import { fixturePages } from '@threadsignal/crawler';
+import { fixturePages, createCrawlerProvider } from '@threadsignal/crawler';
 import {
   claimKnowledgeJob,
   processKnowledgeJob,
   publishKnowledge,
 } from '../../apps/worker/src/jobs/knowledge';
 import { LocalKnowledgeStorage } from '../../apps/worker/src/storage';
+import { parseWorkerConfig } from '../../apps/worker/src/config';
+import { createWorkerAI } from '../../apps/worker/src/providers';
 import { localDatabaseUrl, verifyDocker, supabase } from '../../scripts/service-utils.mjs';
 import { parseWorkerStorageKey } from '../../scripts/worker-storage.mjs';
 
@@ -134,6 +136,57 @@ describe('Phase 2 durable ingestion worker', () => {
       await sql`select id from public.knowledge_chunks where source_id=${fixture.id}`,
     ).toHaveLength(0);
   });
+  it('re-embeds unchanged content after a model change and never searches across vector spaces', async () => {
+    const fixture = await source('manual');
+    expect(await processKnowledgeJob(sql, fixture.jobId, storage)).toEqual({ status: 'completed' });
+    const first = await sql`select id from public.knowledge_chunks where source_id=${fixture.id}`;
+    const base = createAIProvider();
+    const embed = vi.fn(base.embed.bind(base));
+    const identity = 'openai:synthetic-model-v2:512:v1';
+    const ai: AIProvider = {
+      mode: 'openai',
+      embeddingIdentity: identity,
+      embed,
+      generateStructured: base.generateStructured.bind(base),
+    };
+    const providers = { ai, crawler: createCrawlerProvider(), embeddingIdentity: identity };
+    async function reingest(generation: number) {
+      const jobId = randomUUID();
+      await sql`update public.knowledge_sources set generation=${generation},status='pending' where id=${fixture.id}`;
+      await sql`insert into public.knowledge_jobs(id,organization_id,brand_id,source_id,generation,kind) values(${jobId},${organization},${brand},${fixture.id},${generation},'ingest')`;
+      expect(await processKnowledgeJob(sql, jobId, storage, providers)).toEqual({
+        status: 'completed',
+      });
+    }
+    await reingest(2);
+    expect(embed).toHaveBeenCalledOnce();
+    const second =
+      await sql`select id,embedding_identity from public.knowledge_chunks where source_id=${fixture.id}`;
+    expect(second).not.toEqual(first);
+    expect(second.every((chunk) => chunk.embedding_identity === identity)).toBe(true);
+    expect(first.some((chunk) => second.some((next) => next.id === chunk.id))).toBe(false);
+    await reingest(3);
+    expect(embed).toHaveBeenCalledOnce();
+    expect(
+      await sql`select id,embedding_identity from public.knowledge_chunks where source_id=${fixture.id}`,
+    ).toEqual(second);
+    const vector = JSON.stringify(
+      (await base.embed({ texts: ['private storage'], dimensions: 512 }))[0],
+    );
+    await sql.begin(async (tx) => {
+      await tx`select set_config('request.jwt.claim.sub',${user},true)`;
+      await tx`set local role authenticated`;
+      expect(
+        await tx`select * from public.search_knowledge(${brand},${vector}::extensions.vector,'private storage')`,
+      ).toHaveLength(0);
+      expect(
+        await tx`select * from public.search_knowledge(${brand},${vector}::extensions.vector,'private storage',${identity})`,
+      ).toHaveLength(second.length);
+      expect(
+        await tx`select * from public.search_knowledge(${brand},${vector}::extensions.vector,'private storage','openai:different-model:512:v1')`,
+      ).toHaveLength(0);
+    });
+  });
   it('records three bounded failed attempts and safe retry codes', async () => {
     const fixture = await source('website', { pages: ['https://clarityscale.example/unknown'] });
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -146,6 +199,59 @@ describe('Phase 2 durable ingestion worker', () => {
       await sql`update public.knowledge_jobs set available_at=now()-interval '1 second' where id=${fixture.jobId}`;
     }
     expect(await processKnowledgeJob(sql, fixture.jobId, storage)).toEqual({ status: 'skipped' });
+  });
+  it('persists actual embedding tokens from failed attempts without charging a duplicate delivery twice', async () => {
+    const fixture = await source('manual');
+    const config = parseWorkerConfig({
+      DATABASE_URL: 'postgresql://postgres:synthetic-password@127.0.0.1:54322/postgres',
+    });
+    // Synthetic adapter transport only: no deployment connection or external request.
+    config.mode = 'deployment';
+    config.providers = {
+      ai: {
+        mode: 'openai',
+        options: {
+          apiKey: 'synthetic-test-key',
+          fastModel: 'synthetic-fast',
+          smartModel: 'synthetic-smart',
+          embeddingModel: 'failed-embedding-fixture',
+          maxRetries: 0,
+          transport: async () =>
+            Response.json({ data: [], usage: { prompt_tokens: 23, total_tokens: 23 } }),
+        },
+      },
+      reddit: { mode: 'mock' },
+      email: { mode: 'console' },
+      crawler: 'fixture',
+    };
+    const ai = createWorkerAI(config);
+    const providers = {
+      ai,
+      crawler: createCrawlerProvider(),
+      embeddingIdentity: providerEmbeddingIdentity(ai),
+    };
+    expect(await processKnowledgeJob(sql, fixture.jobId, storage, providers)).toEqual({
+      status: 'retry_or_failed',
+    });
+    expect(await processKnowledgeJob(sql, fixture.jobId, storage, providers)).toEqual({
+      status: 'skipped',
+    });
+    const first =
+      await sql`select operation_id,input_tokens,output_tokens,estimated_cost_usd from public.ai_task_usage where brand_id=${brand} and task='knowledge.embed' and model='failed-embedding-fixture'`;
+    expect(first).toHaveLength(1);
+    expect(first[0]).toMatchObject({
+      input_tokens: 23,
+      output_tokens: 0,
+      estimated_cost_usd: null,
+    });
+    await sql`update public.knowledge_jobs set available_at=now()-interval '1 second' where id=${fixture.jobId}`;
+    expect(await processKnowledgeJob(sql, fixture.jobId, storage, providers)).toEqual({
+      status: 'retry_or_failed',
+    });
+    const retried =
+      await sql`select operation_id from public.ai_task_usage where brand_id=${brand} and task='knowledge.embed' and model='failed-embedding-fixture'`;
+    expect(retried).toHaveLength(2);
+    expect(new Set(retried.map((row) => row.operation_id)).size).toBe(2);
   });
   it('marks an exhausted abandoned lease as failed rather than leaving permanent processing', async () => {
     const fixture = await source('manual');

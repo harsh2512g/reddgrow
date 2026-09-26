@@ -158,7 +158,7 @@ describe('community and keyword workflows', () => {
       />,
     );
     await user.click(screen.getByRole('button', { name: 'Suggest communities' }));
-    expect(await screen.findByText('Mock AI suggestion:')).toBeInTheDocument();
+    expect(await screen.findByText('Suggested match:')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledOnce();
     await user.click(screen.getByRole('button', { name: 'Monitor community' }));
     await waitFor(() => expect(navigation.refresh).toHaveBeenCalled());
@@ -287,6 +287,20 @@ describe('community and keyword workflows', () => {
   });
 });
 describe('opportunity review states', () => {
+  it('filters saved draft and publication lifecycle without replacing review actions', async () => {
+    render(
+      <OpportunityFeed
+        {...feedProps}
+        items={[{ ...opportunity, opportunity_workflow_status: 'approved' }]}
+      />,
+    );
+    expect(screen.getByText('· Approved')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Save$/ })).toBeEnabled();
+    await userEvent.selectOptions(screen.getByLabelText('Status'), 'published_manually');
+    expect(screen.getByLabelText('Status')).toHaveValue('published_manually');
+    for (const status of ['draft_ready', 'approved', 'published_manually'])
+      expect(feedFilterSchema.parse({ status }).status).toBe(status);
+  });
   it('prevents blocked save and monitor actions and hides viewer controls', () => {
     const { rerender } = render(
       <OpportunityActions

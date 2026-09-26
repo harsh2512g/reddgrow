@@ -92,8 +92,8 @@ export function CommunityStudio({
             <div>
               <h2 className="text-lg font-semibold">Find your next community</h2>
               <p className="mt-2 text-xs leading-6 text-muted-foreground">
-                Search the read-only mock provider or add a community name. Monitoring starts
-                immediately, then refreshes on schedule.
+                Search communities or add a community name. Monitoring starts immediately, then
+                refreshes on schedule.
               </p>
             </div>
             <Button
@@ -146,7 +146,7 @@ export function CommunityStudio({
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
               {results.length === 0 ? (
                 <p role="status" className="text-sm text-muted-foreground">
-                  No matching mock communities. Try a broader name.
+                  No matching communities. Try a broader name.
                 </p>
               ) : (
                 results.map((community) => (
@@ -160,7 +160,7 @@ export function CommunityStudio({
                     </p>
                     {community.reason && (
                       <p className="mt-3 rounded-lg bg-violet-50 p-3 text-xs leading-6 text-primary">
-                        <strong>Mock AI suggestion:</strong> {community.reason}
+                        <strong>Suggested match:</strong> {community.reason}
                       </p>
                     )}
                     <Button
@@ -280,7 +280,7 @@ function CommunityCard({
           <span>
             {item.subreddit.subscriber_count === null
               ? 'Audience unavailable'
-              : `${item.subreddit.subscriber_count.toLocaleString()} synthetic subscribers`}
+              : `${item.subreddit.subscriber_count.toLocaleString()} ${item.subreddit.provider === 'mock' ? 'synthetic ' : ''}subscribers`}
           </span>
           <span>{item.subreddit.is_nsfw ? 'NSFW · blocked' : 'NSFW: No'}</span>
           <span>Rule guidance: {item.allowed_reply_style.replaceAll('_', ' ')}</span>

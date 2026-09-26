@@ -15,12 +15,14 @@ export function DraftHandoff({
   canAct,
   disabled,
   onUpdated,
+  allowLocalFixture = false,
 }: {
   detail: DraftDetail;
   organizationId: string;
   canAct: boolean;
   disabled: boolean;
   onUpdated: () => Promise<unknown>;
+  allowLocalFixture?: boolean;
 }) {
   const [commentUrl, setCommentUrl] = useState('');
   const [confirmedVersion, setConfirmedVersion] = useState<number | null>(null);
@@ -30,14 +32,21 @@ export function DraftHandoff({
   const operation = useRef(false);
   const { draft, opportunity } = detail;
   const confirmed = confirmedVersion === draft.current_version;
-  const post = normalizeRedditUrl(opportunity.post.permalink ?? '', { allowFixture: true });
-  const fixture = post?.postId.startsWith('fixture_') === true;
+  const normalized = normalizeRedditUrl(opportunity.post.permalink ?? '', { allowFixture: true });
+  const fixture =
+    opportunity.post.provider === 'mock' && normalized?.postId.startsWith('fixture_') === true;
+  const fixtureBlocked = fixture && !allowLocalFixture;
+  const post = fixtureBlocked
+    ? null
+    : normalizeRedditUrl(opportunity.post.permalink ?? '', {
+        allowFixture: allowLocalFixture && fixture,
+      });
   const discussionUrl =
     post && fixture
       ? `http://127.0.0.1:3000/extension-fixture/reddit/r/${post.subreddit}/comments/${post.postId}/fixture`
       : post?.canonicalUrl;
   const recordedComment = normalizeRedditUrl(draft.published_comment_url ?? '', {
-    allowFixture: true,
+    allowFixture: allowLocalFixture && fixture,
   });
   const approved =
     draft.status === 'approved' &&
@@ -50,7 +59,9 @@ export function DraftHandoff({
   const available = canAct && approved && !disabled && !pending && Boolean(post);
   const recordedCurrent =
     draft.published_version === draft.current_version && Boolean(draft.published_at);
-  const input = normalizeRedditUrl(commentUrl.trim(), { allowFixture: true });
+  const input = normalizeRedditUrl(commentUrl.trim(), {
+    allowFixture: allowLocalFixture && fixture,
+  });
   const validComment = Boolean(
     input?.commentId && post && input.postId === post.postId && input.subreddit === post.subreddit,
   );
@@ -93,14 +104,16 @@ export function DraftHandoff({
                 ? 'Save your changes and wait for the current action to finish before continuing.'
                 : !approved
                   ? 'Approve the current saved version with up-to-date checks before using it on Reddit.'
-                  : 'This discussion does not have a supported Reddit link.'}
+                  : fixtureBlocked
+                    ? 'This synthetic discussion is available only in the local practice workspace.'
+                    : 'This discussion does not have a supported Reddit link.'}
           </p>
         )}
         <p className="mt-4 text-[11px] leading-6 text-muted-foreground">
           Edits made in the extension must return to ThreadSignal for fresh verification and
           approval. Inserting text does not publish it.
         </p>
-        {fixture && (
+        {fixture && allowLocalFixture && (
           <p className="mt-3 text-[11px] leading-6 text-muted-foreground">
             This synthetic opportunity opens a local practice composer. It is not a live Reddit
             discussion.

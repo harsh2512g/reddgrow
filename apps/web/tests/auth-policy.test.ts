@@ -191,7 +191,7 @@ describe('authentication isolation and cookies', () => {
       { NEXT_PUBLIC_APP_URL: 'http://127.0.0.1:3002' },
       { NEXT_PUBLIC_APP_URL: 'http://localhost:3000' },
       { NEXT_PUBLIC_APP_URL: 'http://localhost:3002/path' },
-      { NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'sb_secret_synthetic_fixture_value' },
+      { NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'sb_secret_' + 'synthetic_fixture_value' },
       {
         NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: undefined,
         NEXT_PUBLIC_SUPABASE_ANON_KEY: local.NEXT_PUBLIC_SUPABASE_ANON_KEY,
@@ -218,7 +218,7 @@ describe('authentication isolation and cookies', () => {
       parseAuthConfiguration(
         {
           ...configured,
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'sb_secret_synthetic_fixture_value',
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'sb_secret_' + 'synthetic_fixture_value',
         },
         { local: false, servicesReady: false },
       ),

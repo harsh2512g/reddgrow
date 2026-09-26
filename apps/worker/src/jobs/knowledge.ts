@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { Queue, Worker } from 'bullmq';
 import type { Sql, TransactionSql } from 'postgres';
-import { createAIProvider } from '@threadsignal/ai';
-import { createCrawlerProvider } from '@threadsignal/crawler';
+import { createAIProvider, providerEmbeddingIdentity, type AIProvider } from '@threadsignal/ai';
+import { createCrawlerProvider, type CrawlerProvider } from '@threadsignal/crawler';
 import { createLogger, createObservability } from '@threadsignal/shared';
 import {
   crawlDocuments,
@@ -15,6 +15,7 @@ import {
 } from '@threadsignal/knowledge/pipeline';
 import type { WorkerConfig } from '../config';
 import { WorkerKnowledgeStorage } from '../storage';
+import { createWorkerAI, createWorkerCrawler, withWorkerAIOperation } from '../providers';
 
 export const KNOWLEDGE_QUEUE = 'knowledge-ingestion';
 export const LEASE_SECONDS = 90;
@@ -105,6 +106,7 @@ export async function publishKnowledge(
   job: ClaimedJob,
   documents: PreparedDocument[],
   partial: boolean,
+  embeddingIdentity?: string,
 ) {
   return await sql.begin(async (tx) => {
     if (!(await lockCurrent(tx, job))) return false;
@@ -113,17 +115,24 @@ export async function publishKnowledge(
     let chunkCount = 0;
     for (const document of documents) {
       const [previous] =
-        await tx`select id,checksum from public.knowledge_documents where source_id=${job.source_id} and document_key=${document.key}`;
+        await tx`select id,checksum ${embeddingIdentity ? tx`,embedding_identity` : tx``} from public.knowledge_documents where source_id=${job.source_id} and document_key=${document.key}`;
       const id = typeof previous?.id === 'string' ? previous.id : randomUUID();
       await tx`insert into public.knowledge_documents(id,organization_id,brand_id,source_id,document_key,title,canonical_url,page_number,section_heading,content,checksum)
         values(${id},${job.organization_id},${job.brand_id},${job.source_id},${document.key},${document.title},${document.canonicalUrl},${document.pageNumber},${document.sectionHeading},${document.content},${document.checksum})
         on conflict(source_id,document_key) do update set title=excluded.title,canonical_url=excluded.canonical_url,page_number=excluded.page_number,section_heading=excluded.section_heading,content=excluded.content,checksum=excluded.checksum`;
-      if (previous?.checksum !== document.checksum) {
+      if (
+        previous?.checksum !== document.checksum ||
+        (embeddingIdentity && previous?.embedding_identity !== embeddingIdentity)
+      ) {
         await tx`delete from public.knowledge_chunks where document_id=${id}`;
         for (const chunk of document.chunks) {
           await tx`insert into public.knowledge_chunks(organization_id,brand_id,source_id,document_id,chunk_index,content,token_count,checksum,embedding,section_heading)
             values(${job.organization_id},${job.brand_id},${job.source_id},${id},${chunk.index},${chunk.content},${chunk.tokenCount},${chunk.checksum},${JSON.stringify(chunk.embedding)}::extensions.vector,${chunk.sectionHeading})`;
         }
+      }
+      if (embeddingIdentity) {
+        await tx`update public.knowledge_documents set embedding_identity=${embeddingIdentity} where id=${id}`;
+        await tx`update public.knowledge_chunks set embedding_identity=${embeddingIdentity} where document_id=${id}`;
       }
       chunkCount += document.chunks.length;
     }
@@ -146,7 +155,16 @@ export async function processKnowledgeJob(
   sql: Sql,
   jobId: string,
   storage: WorkerKnowledgeStorage,
+  providers: { ai: AIProvider; crawler: CrawlerProvider; embeddingIdentity?: string } = {
+    ai: createAIProvider(),
+    crawler: createCrawlerProvider(),
+  },
 ) {
+  if (
+    providers.ai.mode !== 'mock' &&
+    providers.embeddingIdentity !== providerEmbeddingIdentity(providers.ai)
+  )
+    throw new Error('Real knowledge embeddings require their configured vector-space identity.');
   const job = await claimKnowledgeJob(sql, jobId);
   if (!job) return { status: 'skipped' } as const;
   const renewal = setInterval(() => {
@@ -184,13 +202,13 @@ export async function processKnowledgeJob(
     else {
       const crawled = await crawlDocuments(
         { pages: source.selected_pages, approvedDomains: [new URL(source.website_url).hostname] },
-        createCrawlerProvider(),
+        providers.crawler,
       );
       extracted = crawled.documents;
       partial = crawled.partial;
     }
     const previous =
-      await sql`select checksum,embedding::text as embedding from public.knowledge_chunks where organization_id=${job.organization_id} and brand_id=${job.brand_id} and source_id=${job.source_id}`;
+      await sql`select checksum,embedding::text as embedding from public.knowledge_chunks where organization_id=${job.organization_id} and brand_id=${job.brand_id} and source_id=${job.source_id} ${providers.embeddingIdentity ? sql`and embedding_identity=${providers.embeddingIdentity}` : sql``}`;
     const cache = new Map<string, number[]>();
     for (const row of previous) {
       if (typeof row.checksum === 'string' && typeof row.embedding === 'string') {
@@ -201,8 +219,26 @@ export async function processKnowledgeJob(
         if (embedding.success) cache.set(row.checksum, embedding.data);
       }
     }
-    const documents = await prepareDocuments(extracted, createAIProvider(), cache);
-    const published = await publishKnowledge(sql, job, documents, partial);
+    const documents = providers.embeddingIdentity
+      ? await withWorkerAIOperation(
+          sql,
+          {
+            organizationId: job.organization_id,
+            brandId: job.brand_id,
+            operationId: job.lease_token,
+            task: 'knowledge.embed',
+          },
+          providers.ai,
+          (tracked) => prepareDocuments(extracted, tracked, cache),
+        )
+      : await prepareDocuments(extracted, providers.ai, cache);
+    const published = await publishKnowledge(
+      sql,
+      job,
+      documents,
+      partial,
+      providers.embeddingIdentity,
+    );
     return { status: published ? 'completed' : 'stale' } as const;
   } catch (error) {
     await recordFailure(sql, job, safeIngestionError(error).toUpperCase());
@@ -213,6 +249,14 @@ export async function processKnowledgeJob(
 }
 
 export async function startKnowledgeWorker(sql: Sql, config: WorkerConfig) {
+  const ai = createWorkerAI(config);
+  const providers = {
+    ai,
+    crawler: createWorkerCrawler(config),
+    ...(config.mode === 'personal-development'
+      ? {}
+      : { embeddingIdentity: providerEmbeddingIdentity(ai) }),
+  };
   const logger = createLogger({ service: 'knowledge-worker', level: config.logLevel });
   const observability = createObservability({});
   const connection = { ...config.redis, maxRetriesPerRequest: null, connectTimeout: 2_000 };
@@ -228,7 +272,7 @@ export async function startKnowledgeWorker(sql: Sql, config: WorkerConfig) {
     async (item) => {
       const data = knowledgePayload.parse(item.data);
       return observability.run('knowledge.ingest', { jobId: data.jobId }, async () => {
-        const result = await processKnowledgeJob(sql, data.jobId, storage);
+        const result = await processKnowledgeJob(sql, data.jobId, storage, providers);
         logger.info(
           { event: 'knowledge_job_finished', jobId: data.jobId, status: result.status },
           'Knowledge job processed.',

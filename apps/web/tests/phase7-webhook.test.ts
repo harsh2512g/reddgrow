@@ -158,7 +158,14 @@ describe('Phase 7 webhook HTTP boundary', () => {
     else mocks.enabled.mockReturnValue(false);
     const response = await billingWebhook(request());
     expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({ error: { code: 'WEBHOOK_DISABLED' } });
+    expect(await response.json()).toEqual({
+      error: {
+        code: 'WEBHOOK_DISABLED',
+        message: 'Billing webhooks are not enabled for this provider.',
+        details: {},
+        requestId: response.headers.get('x-request-id'),
+      },
+    });
     expect(mocks.provider).not.toHaveBeenCalled();
     expect(mocks.reconcile).not.toHaveBeenCalled();
   });

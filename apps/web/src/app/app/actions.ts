@@ -68,7 +68,7 @@ export async function createOrganizationAction(data: FormData): Promise<ActionRe
     return actionFailure(error);
   }
   revalidatePath('/app', 'layout');
-  redirect('/app');
+  redirect('/app/onboarding');
 }
 
 export async function updateOrganizationAction(

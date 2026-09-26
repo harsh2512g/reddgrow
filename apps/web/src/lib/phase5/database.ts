@@ -1,4 +1,6 @@
 import 'server-only';
+import { runtimeDatabaseOptions } from '../env/runtime';
+import { getServerEnv } from '../env/server';
 import postgres from 'postgres';
 import { localDraftsEnabled } from '../phase4/server';
 import { ExtensionError } from './errors';
@@ -18,19 +20,9 @@ export async function extensionDatabase(
   args: (string | number | null)[],
 ): Promise<unknown> {
   if (!localDraftsEnabled()) throw new ExtensionError('LOCAL_ONLY', 503);
-  const raw = process.env.DATABASE_URL;
-  if (!raw) throw new ExtensionError('UNAVAILABLE', 503);
-  const url = new URL(raw);
-  if (
-    !['postgres:', 'postgresql:'].includes(url.protocol) ||
-    url.hostname !== '127.0.0.1' ||
-    url.port !== '54322' ||
-    url.pathname !== '/postgres' ||
-    url.search ||
-    url.hash
-  )
-    throw new ExtensionError('LOCAL_ONLY', 503);
-  const sql = postgres(raw, {
+  const connection = runtimeDatabaseOptions(getServerEnv());
+  const sql = postgres({
+    ...connection,
     max: 1,
     connect_timeout: 3,
     idle_timeout: 1,

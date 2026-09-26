@@ -9,6 +9,7 @@ out/
 
 # Build outputs
 dist/
+dist-deployment/
 build/
 .turbo/
 
@@ -36,4 +37,7 @@ temp/
 # Isolated local tools, service state, and generated artifacts
 .threadsignal/
 .local/
+.audit/
+.lima/
+.colima/
 *.tsbuildinfo

@@ -1,4 +1,5 @@
 import 'server-only';
+import { apiErrorResponse } from '../api-errors';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { createLogger } from '@threadsignal/shared';
@@ -77,7 +78,7 @@ function failed(error: unknown, headers: Headers) {
   );
   headers.set('X-Request-ID', fail.error.requestId);
   if (fail.status === 429) headers.set('Retry-After', '60');
-  return Response.json({ error: fail.error }, { status: fail.status, headers });
+  return apiErrorResponse(fail, headers);
 }
 const publicHeaders = () =>
   new Headers({

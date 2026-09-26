@@ -1,4 +1,5 @@
 import 'server-only';
+import { runtimeRedisOptions } from './env/runtime';
 import { createHash } from 'node:crypto';
 import { Redis } from 'ioredis';
 import { z } from 'zod';
@@ -14,24 +15,12 @@ export async function enforceMutationRateLimit(
   let redis: Redis | undefined;
   try {
     const env = getServerEnv();
-    const url = new URL(env.REDIS_URL);
-    if (
-      process.env.THREADSIGNAL_LOCAL !== '1' ||
-      process.env.THREADSIGNAL_SERVICES_READY !== '1' ||
-      url.protocol !== 'redis:' ||
-      url.hostname !== '127.0.0.1' ||
-      url.port !== '56379' ||
-      !['', '/', '/0'].includes(url.pathname) ||
-      url.username ||
-      url.password ||
-      url.search ||
-      url.hash
-    )
-      throw new KnowledgeError('RATE_LIMIT_UNAVAILABLE', 503);
+    const connection = runtimeRedisOptions(env, true);
     z.enum(['knowledge', 'opportunities', 'drafts']).parse(operation);
     const scope = createHash('sha256').update(z.uuid().parse(organizationId)).digest('hex');
-    const prefix = `threadsignal:mutations:${env.THREADSIGNAL_SUPABASE_MODE}:${operation}`;
-    redis = new Redis(env.REDIS_URL, {
+    const prefix = `threadsignal:mutations:${env.THREADSIGNAL_SUPABASE_MODE}${env.THREADSIGNAL_SUPABASE_MODE === 'deployment' ? `:${env.THREADSIGNAL_SUPABASE_PROJECT_REF}` : ''}:${operation}`;
+    redis = new Redis({
+      ...connection,
       lazyConnect: true,
       connectTimeout: 1500,
       commandTimeout: 1500,

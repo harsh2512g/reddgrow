@@ -42,10 +42,12 @@ export function DraftStudio({
   initial,
   organizationId,
   canAct,
+  allowLocalFixture = false,
 }: {
   initial: DraftDetail;
   organizationId: string;
   canAct: boolean;
+  allowLocalFixture?: boolean;
 }) {
   const [detail, setDetail] = useState(initial);
   const [editor, dispatch] = useReducer(
@@ -601,6 +603,7 @@ export function DraftStudio({
             detail={detail}
             organizationId={organizationId}
             canAct={canAct}
+            allowLocalFixture={allowLocalFixture}
             disabled={actionsDisabled || stale || pendingJobs}
             onUpdated={refresh}
           />

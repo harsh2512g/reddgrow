@@ -2,7 +2,7 @@
 
 import { useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { usePathname, unstable_rethrow } from 'next/navigation';
+import { usePathname, useSearchParams, unstable_rethrow } from 'next/navigation';
 import {
   ArrowUpRight,
   Activity,
@@ -33,9 +33,12 @@ import { Button } from '@threadsignal/ui';
 import { Wordmark } from './wordmark';
 import { ResultNotice } from './phase1/primitives';
 import type { ActionResult, FormAction, OrganizationOption } from './phase1/types';
+import { WorkspaceToolbar, type WorkspaceTools } from './workspace-toolbar';
+import { brandRoutes } from '@/lib/onboarding/model';
 
 const navigation = [
   { href: '/app', label: 'Overview', icon: LayoutDashboard },
+  { href: '/app/onboarding', label: 'Setup checklist', icon: ShieldCheck },
   { href: '/app/brands', label: 'Brands', icon: Shapes },
   { href: '/app/knowledge', label: 'Knowledge', icon: BookOpen },
   { href: '/app/opportunities', label: 'Opportunities', icon: Radio },
@@ -61,6 +64,7 @@ export type AppShellProps = {
   switchAction: FormAction;
   logoutAction: FormAction;
   trialLabel?: string;
+  tools?: WorkspaceTools;
 };
 
 export function AppShell({
@@ -71,8 +75,24 @@ export function AppShell({
   switchAction,
   logoutAction,
   trialLabel = 'Your workspace',
+  tools,
 }: AppShellProps) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const selectedBrand =
+    searchParams.get('brandId') ?? /^\/app\/brands\/([^/]+)/.exec(pathname)?.[1];
+  const brandId = tools?.brands.some(
+    (brand) => brand.id === selectedBrand && brand.status === 'active',
+  )
+    ? selectedBrand
+    : undefined;
+  const scopedNavigation = navigation.map((item) => ({
+    ...item,
+    href:
+      brandId && brandRoutes.some((route) => route === item.href)
+        ? `${item.href}?brandId=${encodeURIComponent(brandId)}`
+        : item.href,
+  }));
   const dialog = useRef<HTMLDialogElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [result, setResult] = useState<ActionResult | null>(null);
@@ -124,9 +144,9 @@ export function AppShell({
         <p className="mb-3 mt-8 px-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
           Your space
         </p>
-        <Navigation pathname={pathname} onNavigate={closeMenu} />
+        <Navigation pathname={pathname} onNavigate={closeMenu} items={scopedNavigation} />
         <Link
-          href="/app/onboarding"
+          href="/app/onboarding?create=1"
           className="mt-4 flex items-center gap-2 px-3 text-xs font-medium text-muted-foreground hover:text-primary"
         >
           <Plus size={14} /> Create a workspace
@@ -147,12 +167,12 @@ export function AppShell({
             </Link>
           </div>
           <div className="mt-5 flex items-center gap-2 px-2 text-[10px] text-muted-foreground">
-            <span className="size-1.5 rounded-full bg-positive" /> Mock providers active
+            <span className="size-1.5 rounded-full bg-positive" /> Human review required
           </div>
         </div>
       </aside>
       <div className="min-w-0">
-        <header className="sticky top-0 z-20 flex min-h-20 items-center justify-between gap-3 border-b border-border bg-white/95 px-5 backdrop-blur-sm sm:px-8">
+        <header className="sticky top-0 z-20 flex min-h-20 flex-wrap items-center justify-between gap-x-3 gap-y-0 border-b border-border bg-white/95 px-5 pt-4 backdrop-blur-sm sm:px-8">
           <div className="flex min-w-0 items-center gap-3">
             <Button
               type="button"
@@ -224,6 +244,12 @@ export function AppShell({
               </div>
             </details>
           </div>
+          {tools && (
+            <WorkspaceToolbar
+              {...tools}
+              commands={scopedNavigation.map(({ href, label }) => ({ href, label }))}
+            />
+          )}
         </header>
         <main
           id="main-content"
@@ -265,10 +291,10 @@ export function AppShell({
           onSwitch={switchOrganization}
         />
         <div className="mt-6">
-          <Navigation mobile pathname={pathname} onNavigate={closeMenu} />
+          <Navigation mobile pathname={pathname} onNavigate={closeMenu} items={scopedNavigation} />
         </div>
         <Link
-          href="/app/onboarding"
+          href="/app/onboarding?create=1"
           onClick={closeMenu}
           className="mt-6 flex items-center gap-2 px-3 text-sm font-medium text-primary"
         >
@@ -286,17 +312,19 @@ function Navigation({
   mobile = false,
   pathname,
   onNavigate,
+  items,
 }: {
   mobile?: boolean;
   pathname: string;
   onNavigate: () => void;
+  items: typeof navigation;
 }) {
   return (
     <nav
       aria-label={mobile ? 'Mobile workspace navigation' : 'Workspace navigation'}
       className="space-y-1.5"
     >
-      {navigation.map(({ href, label, icon: Icon }) => (
+      {items.map(({ href, label, icon: Icon }) => (
         <Link
           key={href}
           href={href}
@@ -315,6 +343,7 @@ function Navigation({
   );
 }
 function isActiveRoute(pathname: string, href: string) {
+  href = href.split('?')[0]!;
   return pathname === href || (href !== '/app' && pathname.startsWith(`${href}/`));
 }
 function OrganizationPicker({

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { apiError, type ApiRequestId } from '../api-errors';
 import { KnowledgeError } from '../knowledge/http';
 import { AttributionError } from '../phase6/errors';
 
@@ -29,7 +30,7 @@ export class OperationsError extends Error {
     super(code);
   }
 }
-export function operationFailure(error: unknown, requestId: string) {
+export function operationFailure(error: unknown, requestId: ApiRequestId) {
   let code: keyof typeof messages = 'UNAVAILABLE';
   let status = 500;
   if (error instanceof OperationsError) {
@@ -88,7 +89,7 @@ export function operationFailure(error: unknown, requestId: string) {
       }
     }
   }
-  return { status, error: { code, message: messages[code], requestId } };
+  return { status, error: apiError(code, messages[code], requestId) };
 }
 
 export function checked<T>(result: { data: T; error: unknown }): T {

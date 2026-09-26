@@ -119,13 +119,31 @@ export async function signInWithMagicLink(
   const link = await waitForSignInLink(email, previousIds);
   await navigatePrivateLink(page, link);
   try {
-    await page.waitForFunction(
-      () =>
-        window.location.origin === 'http://127.0.0.1:3000' &&
-        window.location.pathname.startsWith('/app'),
-      undefined,
-      { timeout: 20_000 },
+    // A matching location can appear before the auth callback and subsequent
+    // /app -> /app/onboarding redirect have finished loading. The shell is only
+    // rendered after server-side getUser verification; a real page heading also
+    // waits past the workspace loading fallback and any organization redirect.
+    await page.waitForURL(
+      (url) => url.origin === appOrigin && /^\/app(?:\/|$)/.test(url.pathname),
+      { waitUntil: 'domcontentloaded', timeout: 20_000 },
     );
+    await expect(page.getByLabel('Open user menu', { exact: true })).toBeVisible({
+      timeout: 20_000,
+    });
+    // Readiness requires page content, not a particular number of headings:
+    // the invitation view has both a page heading and a panel heading.
+    await expect(
+      page.locator('#main-content').getByRole('heading', { level: 1 }).first(),
+    ).toBeVisible({ timeout: 20_000 });
+    if (options.next) {
+      // Preserve the caller's destination (including invitation paths) without
+      // recording its potentially private value as a navigation/report argument.
+      await page.waitForFunction(
+        (expected) => window.location.pathname + window.location.search === expected,
+        options.next,
+        { timeout: 20_000 },
+      );
+    }
   } catch {
     throw new Error(
       'The local magic-link exchange did not establish an authenticated app session.',
@@ -143,8 +161,13 @@ export async function createWorkspace(
   await page.getByLabel('Billing email', { exact: true }).fill(identity.email);
   await page.getByLabel('I agree to participate responsibly and publish replies manually.').check();
   await page.getByRole('button', { name: 'Create workspace', exact: true }).click();
-  await expect(page).toHaveURL(appOrigin + '/app');
-  const id = await page.locator('#desktop-organization').inputValue();
+  await expect(page).toHaveURL(appOrigin + '/app/onboarding');
+  // Creation redirects to the same path as the form. Wait for saved server state,
+  // not a URL assertion that can pass while the form submission is still pending.
+  const picker = page.locator('#desktop-organization');
+  await expect(picker).toHaveValue(/^[0-9a-f-]{36}$/, { timeout: 20_000 });
+  await expect(picker.locator('option:checked')).toHaveText(identity.name);
+  const id = await picker.inputValue();
   if (!z.uuid().safeParse(id).success)
     throw new Error('The created workspace selector did not contain a valid organization ID.');
   return id;

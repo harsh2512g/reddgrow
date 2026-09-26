@@ -8,6 +8,7 @@ import {
 
 export const idSchema = z.uuid();
 export const communitySchema = z.object({
+  provider: z.enum(['mock', 'oauth']).default('mock'),
   id: z.uuid(),
   name: z.string(),
   display_name: z.string(),
@@ -76,6 +77,7 @@ export const keywordRecordSchema = z.object({
   source: z.enum(['manual', 'suggested']),
 });
 export const postSchema = z.object({
+  provider: z.enum(['mock', 'oauth']).default('mock'),
   id: z.uuid(),
   title: z.string().nullable(),
   body: z.string().nullable().optional(),
@@ -87,12 +89,19 @@ export const postSchema = z.object({
   is_locked: z.boolean(),
   is_archived: z.boolean(),
 });
+export const opportunityWorkflowSchema = z.enum([
+  ...opportunityStatusSchema.options,
+  'draft_ready',
+  'approved',
+  'published_manually',
+]);
 export const opportunitySchema = z.object({
   id: z.uuid(),
   organization_id: z.uuid(),
   brand_id: z.uuid(),
   subreddit_id: z.uuid(),
   status: opportunityStatusSchema,
+  opportunity_workflow_status: opportunityWorkflowSchema.optional(),
   summary: z.string().nullable(),
   user_need: z.string().nullable(),
   intent_category: intentCategorySchema,
@@ -124,7 +133,7 @@ export const feedFilterSchema = z
   .object({
     brandId: optionalFilter(z.uuid()),
     q: z.string().trim().max(150).default(''),
-    status: optionalFilter(opportunityStatusSchema),
+    status: optionalFilter(opportunityWorkflowSchema),
     risk: optionalFilter(riskLevelSchema),
     intent: optionalFilter(intentCategorySchema),
     minimumScore: z.preprocess(

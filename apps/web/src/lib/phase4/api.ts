@@ -1,4 +1,5 @@
 import 'server-only';
+import { apiError, apiErrorResponse, createApiRequestId } from '../api-errors';
 import { enforceMutationRateLimit } from '../mutation-rate-limit';
 import { z } from 'zod';
 import { unstable_rethrow } from 'next/navigation';
@@ -72,7 +73,7 @@ export function draftDatabaseError(error: { message: string; code?: string } | n
   throw new DraftError('PROCESSING_FAILED', 500);
 }
 export async function draftRoute(action: () => Promise<unknown>) {
-  const requestId = crypto.randomUUID();
+  const requestId = createApiRequestId();
   try {
     return Response.json(
       { data: await action() },
@@ -88,16 +89,10 @@ export async function draftRoute(action: () => Promise<unknown>) {
           : error instanceof z.ZodError
             ? new DraftError('INVALID_INPUT')
             : new DraftError('PROCESSING_FAILED', 500);
-    return Response.json(
-      {
-        error: {
-          code: known.code,
-          message: messages[known.code] ?? messages.PROCESSING_FAILED,
-          requestId,
-        },
-      },
-      { status: known.status, headers: { 'Cache-Control': 'no-store', 'X-Request-ID': requestId } },
-    );
+    return apiErrorResponse({
+      status: known.status,
+      error: apiError(known.code, messages[known.code] ?? messages.PROCESSING_FAILED!, requestId),
+    });
   }
 }
 export async function draftContext(

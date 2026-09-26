@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ThreadSignal \u00b7 Reply Studio",
-  "version": "0.5.0",
+  "version": "0.1.0",
   "description": "Review evidence-backed replies, then copy or insert an approved draft. You always publish manually.",
   "minimum_chrome_version": "116",
   "permissions": ["sidePanel", "storage", "activeTab", "scripting"],

@@ -13,6 +13,7 @@ import type { ActionResult } from '../phase1/types';
 import { createdSchema, knowledgeRequest, mutationSchema, requestMessage } from './api';
 import { KnowledgeChecklist } from './primitives';
 import type { Brand } from './types';
+import { BrandExtraction } from './brand-extraction';
 
 type Fields = z.input<typeof brandInputSchema>;
 type TextName =
@@ -82,11 +83,13 @@ export function BrandForm({
 }) {
   const router = useRouter();
   const [result, setResult] = useState<ActionResult | null>(null);
+  const [extractionChecksum, setExtractionChecksum] = useState<string | null>(null);
   const {
     register,
     control,
     handleSubmit,
     reset,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<Fields, unknown, BrandInput>({
     resolver: zodResolver(brandInputSchema),
@@ -216,6 +219,24 @@ export function BrandForm({
             profile.
           </PermissionNotice>
         )}
+        {brand && canManage && (
+          <BrandExtraction
+            brandId={brand.id}
+            organizationId={organizationId}
+            disabled={isSubmitting}
+            onApply={(suggestions, checksum) => {
+              for (const suggestion of suggestions) {
+                const field = suggestion.field;
+                if (field === 'use_cases' || field === 'keywords' || field === 'avoid_claims') {
+                  if (Array.isArray(suggestion.value))
+                    setValue(field, suggestion.value, { shouldDirty: true, shouldValidate: true });
+                } else if (typeof suggestion.value === 'string')
+                  setValue(field, suggestion.value, { shouldDirty: true, shouldValidate: true });
+              }
+              setExtractionChecksum(checksum);
+            }}
+          />
+        )}
         <form
           noValidate
           className="space-y-6"
@@ -227,9 +248,15 @@ export function BrandForm({
                 if (brand) {
                   await knowledgeRequest(`/api/brands/${brand.id}`, mutationSchema, {
                     method: 'PATCH',
-                    body: JSON.stringify({ profile }),
+                    body: JSON.stringify({
+                      profile,
+                      ...(extractionChecksum
+                        ? { extraction: { checksum: extractionChecksum } }
+                        : {}),
+                    }),
                   });
                   setResult({ status: 'success', message: 'Your brand profile has been saved.' });
+                  setExtractionChecksum(null);
                   router.refresh();
                 } else {
                   const created = await knowledgeRequest('/api/brands', createdSchema, {

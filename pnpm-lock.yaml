@@ -418,6 +418,9 @@ importers:
       '@threadsignal/crawler':
         specifier: workspace:*
         version: link:../../packages/crawler
+      '@threadsignal/database':
+        specifier: workspace:*
+        version: link:../../packages/database
       '@threadsignal/drafts':
         specifier: workspace:*
         version: link:../../packages/drafts
@@ -506,6 +509,9 @@ importers:
       '@threadsignal/shared':
         specifier: workspace:*
         version: link:../shared
+      parse5:
+        specifier: 8.0.1
+        version: 8.0.1
       zod:
         specifier: 4.6.4
         version: 4.6.4

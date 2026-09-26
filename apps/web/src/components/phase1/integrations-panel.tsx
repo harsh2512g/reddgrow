@@ -1,52 +1,82 @@
 import { Bot, CreditCard, Database, Mail, MessageSquare, ShieldCheck } from 'lucide-react';
+import type { ServerEnv } from '@threadsignal/config';
 import { responsibleUseNotice } from './primitives';
 
 export function IntegrationsPanel({
   supabaseMode,
+  modes = {
+    REDDIT_PROVIDER: 'mock',
+    AI_PROVIDER: 'mock',
+    EMAIL_PROVIDER: 'console',
+    BILLING_PROVIDER: 'mock',
+    CRAWLER_PROVIDER: 'fixture',
+  },
 }: {
-  supabaseMode: 'local' | 'personal-development';
+  supabaseMode: 'local' | 'personal-development' | 'deployment';
+  modes?: Pick<
+    ServerEnv,
+    'REDDIT_PROVIDER' | 'AI_PROVIDER' | 'EMAIL_PROVIDER' | 'BILLING_PROVIDER' | 'CRAWLER_PROVIDER'
+  >;
 }) {
-  const hosted = supabaseMode === 'personal-development';
+  const hosted = supabaseMode !== 'local';
   const providers = [
     {
       name: 'Supabase authentication and database',
-      mode: hosted ? 'Hosted dev' : 'Local',
+      mode: supabaseMode === 'deployment' ? 'Hosted' : hosted ? 'Hosted dev' : 'Local',
       icon: Database,
-      text: hosted
-        ? 'Accounts and workspace data use your personal Supabase development project.'
-        : 'Accounts and workspace data use the project’s local Supabase service.',
+      text:
+        supabaseMode === 'deployment'
+          ? 'Accounts, workspace data and private files use the configured Supabase project.'
+          : hosted
+            ? 'Accounts and workspace data use your personal Supabase development project.'
+            : 'Accounts and workspace data use the project’s local Supabase service.',
     },
     {
       name: 'Reddit',
-      mode: 'Mock',
+      mode: modes.REDDIT_PROVIDER === 'mock' ? 'Mock' : 'Approved API',
       icon: MessageSquare,
-      text: 'Synthetic public-conversation fixtures. Production Reddit ingestion is disabled.',
+      text:
+        modes.REDDIT_PROVIDER === 'mock'
+          ? 'Synthetic public-conversation fixtures. Production Reddit ingestion is disabled.'
+          : 'Read-only community monitoring through the approved Reddit API. Replies are always published manually.',
     },
     {
       name: 'AI assistance',
-      mode: 'Mock',
+      mode: modes.AI_PROVIDER === 'mock' ? 'Mock' : 'AI provider',
       icon: Bot,
-      text: 'Deterministic local responses. No real AI account or API key is used.',
+      text:
+        modes.AI_PROVIDER === 'mock'
+          ? 'Deterministic local responses. No real AI account or API key is used.'
+          : 'Configured models assist with extraction, scoring, drafting and verification. Human review remains required.',
     },
     {
       name: 'Email',
-      mode: 'Console',
+      mode: modes.EMAIL_PROVIDER === 'console' ? 'Console' : 'Resend',
       icon: Mail,
-      text: hosted
-        ? 'Application notices use console delivery. Sign-in emails are handled by your Supabase project’s Auth settings.'
-        : 'Application notices use console delivery. Sign-in links arrive in the local authentication inbox.',
+      text:
+        modes.EMAIL_PROVIDER === 'resend'
+          ? 'Application notices use Resend. Supabase handles authentication emails.'
+          : hosted
+            ? 'Application notices use console delivery. Sign-in emails are handled by your Supabase project’s Auth settings.'
+            : 'Application notices use console delivery. Sign-in links arrive in the local authentication inbox.',
     },
     {
       name: 'Billing',
-      mode: 'Mock',
+      mode: modes.BILLING_PROVIDER === 'mock' ? 'Mock' : 'Stripe',
       icon: CreditCard,
-      text: 'Trial and plan records only. No payment method or real charge is connected.',
+      text:
+        modes.BILLING_PROVIDER === 'mock'
+          ? 'Trial and plan records only. No payment method or real charge is connected.'
+          : 'Checkout, subscription changes and the customer portal use Stripe.',
     },
     {
       name: 'Knowledge crawler',
-      mode: 'Fixture',
+      mode: modes.CRAWLER_PROVIDER === 'fixture' ? 'Fixture' : 'Website crawler',
       icon: Database,
-      text: 'Local fixture sources. Website ingestion becomes available with brand setup.',
+      text:
+        modes.CRAWLER_PROVIDER === 'fixture'
+          ? 'Local fixture sources. Website ingestion becomes available with brand setup.'
+          : 'Only approved public company pages are fetched, with robots and private-network protections.',
     },
   ];
   return (
@@ -55,9 +85,11 @@ export function IntegrationsPanel({
         className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm leading-6 text-warning"
         role="status"
       >
-        {hosted
-          ? 'This workspace uses your personal Supabase development project. Reddit and AI use mock providers, and real payments are disabled.'
-          : 'This is a local workspace. Production Reddit ingestion is disabled, and no external provider account is connected.'}
+        {supabaseMode === 'deployment'
+          ? 'This workspace uses its configured Supabase project. The provider modes below show which integrations are active.'
+          : hosted
+            ? 'This workspace uses your personal Supabase development project. Reddit and AI use mock providers, and real payments are disabled.'
+            : 'This is a local workspace. Production Reddit ingestion is disabled, and no external provider account is connected.'}
       </div>
       <section className="panel overflow-hidden">
         <div className="border-b border-border px-6 py-5">

@@ -1,6 +1,6 @@
 {
   "name": "@threadsignal/crawler",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": {
@@ -16,7 +16,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "zod": "4.6.4",
-    "@threadsignal/shared": "workspace:*"
+    "@threadsignal/shared": "workspace:*",
+    "parse5": "8.0.1",
+    "zod": "4.6.4"
   }
 }

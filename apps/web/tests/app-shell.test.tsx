@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ErrorState, LoadingSkeleton } from '@threadsignal/ui';
 vi.mock('next/navigation', () => ({
   usePathname: () => '/app',
+  useSearchParams: () => new URLSearchParams(),
   unstable_rethrow: () => undefined,
 }));
 

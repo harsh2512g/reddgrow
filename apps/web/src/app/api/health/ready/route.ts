@@ -13,7 +13,10 @@ export async function GET(request: Request) {
     redis: 'ready' | 'unavailable' | 'unconfigured';
   } = { database: 'unconfigured', redis: 'unconfigured' };
   try {
-    if (process.env.THREADSIGNAL_SERVICES_READY === '1') {
+    if (
+      process.env.THREADSIGNAL_SERVICES_READY === '1' ||
+      process.env.THREADSIGNAL_SUPABASE_MODE === 'deployment'
+    ) {
       checks = await checkDependencies(getServerEnv());
     }
   } catch {

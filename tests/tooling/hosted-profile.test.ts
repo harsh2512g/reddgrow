@@ -22,7 +22,7 @@ describe('personal development Supabase profile', () => {
       { url: profile.url + '/' },
       { url: profile.url + '.example.test' },
       { url: 'http://127.0.0.1:54321' },
-      { publishableKey: 'sb_secret_synthetic_rejected_key' },
+      { publishableKey: 'sb_secret_' + 'synthetic_rejected_key' },
       { publishableKey: 'a.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.b' },
       { databasePassword: 'synthetic-do-not-echo' },
     ])

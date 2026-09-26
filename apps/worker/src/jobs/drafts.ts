@@ -2,7 +2,12 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Queue, Worker } from 'bullmq';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { createAIProvider, AIProviderError, type AIProvider } from '@threadsignal/ai';
+import {
+  createAIProvider,
+  AIProviderError,
+  providerEmbeddingIdentity,
+  type AIProvider,
+} from '@threadsignal/ai';
 import { EMBEDDING_DIMENSIONS } from '@threadsignal/knowledge';
 import {
   draftContextSchema,
@@ -14,6 +19,7 @@ import {
 import { generateDraft, verifyDraft, checkDraftCompliance } from '@threadsignal/drafts/pipeline';
 import { createLogger, createObservability } from '@threadsignal/shared';
 import { draftPolicySchema, type WorkerConfig } from '../config';
+import { createWorkerAI, withWorkerAIUsage, type WorkerAIUsage } from '../providers';
 
 export const DRAFT_QUEUES = {
   generate: 'generate-draft',
@@ -99,6 +105,7 @@ export async function readDraftContext(
       ? []
       : await sql`select options from public.draft_jobs where draft_id=${job.draft_id} and kind='generate' and status='completed' order by created_at desc,id desc limit 1`;
   const controls = draftControlsSchema.parse(generation?.options ?? job.options);
+  const identity = providerEmbeddingIdentity(ai);
   const query = [
     row.title,
     row.user_need,
@@ -113,7 +120,7 @@ export async function readDraftContext(
     retrievalCaches.set(ai, cache);
   }
   const key = createHash('sha256')
-    .update(JSON.stringify([job.organization_id, job.brand_id, checksum, query]))
+    .update(JSON.stringify([job.organization_id, job.brand_id, checksum, query, identity]))
     .digest('hex');
   for (const [entry, value] of cache) if (value.expires <= Date.now()) cache.delete(entry);
   const cached = cache.get(key);
@@ -132,6 +139,7 @@ export async function readDraftContext(
       from public.knowledge_chunks c join public.knowledge_documents doc on doc.id=c.document_id
       join public.knowledge_sources s on s.id=c.source_id
       where c.brand_id=${job.brand_id} and c.organization_id=${job.organization_id} and doc.is_included
+        and c.embedding_identity=${identity} and doc.embedding_identity=${identity}
         and s.deleted_at is null and s.status in ('ready','partial') and s.last_ingested_at>now()-interval '90 days'
         and (${!cached} or c.id=any(${cachedIds}::uuid[]))
       order by case when ${Boolean(cached)} then 1-array_position(${cachedIds}::uuid[],c.id)::float/10 else (0.75*(1-(c.embedding operator(extensions.<=>) ${embedding}::extensions.vector(512)))
@@ -246,6 +254,19 @@ export async function processDraftJob(
   now = new Date(),
   policy: WorkerConfig['draftPolicy'] = defaultDraftPolicy,
 ) {
+  return withWorkerAIUsage(ai, (usage) =>
+    processDraftJobWithUsage(sql, id, ai, now, policy, usage),
+  );
+}
+
+async function processDraftJobWithUsage(
+  sql: Sql,
+  id: string,
+  ai: AIProvider,
+  now: Date,
+  policy: WorkerConfig['draftPolicy'],
+  usage: () => WorkerAIUsage,
+) {
   const job = await claimDraftJob(sql, id);
   if (!job) return { status: 'skipped' };
   let renewing: Promise<unknown> | null = null;
@@ -266,24 +287,15 @@ export async function processDraftJob(
     }
     const { context, checksum, text } = input;
     let published: boolean;
-    // Mock receipts accurately report zero billed tokens and zero cost. Real-adapter usage is
-    // emitted by its onUsage hook; this isolated runtime never enables real provider requests.
-    const provider_metadata = {
-      provider: ai.mode,
-      model: ai.mode === 'mock' ? 'deterministic' : 'configured',
-      input_tokens: 0,
-      output_tokens: 0,
-      estimated_cost_usd: 0,
-    };
     if (job.kind === 'generate') {
       const result = await generateDraft(context, ai);
       const [row] =
-        await sql`select private.publish_draft_generation(${job.id},${job.lease_token},${checksum},${sql.json({ ...result, provider_metadata })}::jsonb) as published`;
+        await sql`select private.publish_draft_generation(${job.id},${job.lease_token},${checksum},${sql.json({ ...result, provider_metadata: usage() })}::jsonb) as published`;
       published = row?.published === true;
     } else if (job.kind === 'verify') {
       const result = await verifyDraft({ ...context, text }, ai);
       const [row] =
-        await sql`select private.publish_draft_verification(${job.id},${job.lease_token},${checksum},${sql.json({ ...result, provider_metadata })}::jsonb) as published`;
+        await sql`select private.publish_draft_verification(${job.id},${job.lease_token},${checksum},${sql.json({ ...result, provider_metadata: usage() })}::jsonb) as published`;
       published = row?.published === true;
     } else {
       const [draft] =
@@ -304,7 +316,7 @@ export async function processDraftJob(
       });
       const result = await checkDraftCompliance({ ...context, text, verification }, ai);
       const [row] =
-        await sql`select private.publish_draft_compliance(${job.id},${job.lease_token},${checksum},${sql.json({ ...result, provider_metadata })}::jsonb) as published`;
+        await sql`select private.publish_draft_compliance(${job.id},${job.lease_token},${checksum},${sql.json({ ...result, provider_metadata: usage() })}::jsonb) as published`;
       published = row?.published === true;
     }
     if (!published) await finishUnpublished(sql, job, 'DRAFT_CONTEXT_CHANGED', true);
@@ -316,16 +328,19 @@ export async function processDraftJob(
   } finally {
     clearInterval(timer);
     await renewing;
+    // Publication may fail after a billed response, or a later attempt may retry
+    // the same job. Persist each claimed attempt independently, including failures.
+    await sql`select private.record_draft_attempt_usage(${job.id},${job.attempts},${job.lease_token},${sql.json(usage())}::jsonb)`;
   }
 }
 
 export async function startDraftWorker(sql: Sql, config: WorkerConfig) {
-  if (config.mode !== 'local')
+  if (config.mode !== 'local' && config.mode !== 'deployment')
     throw new Error('Phase 4 processing requires the verified local database.');
   const logger = createLogger({ service: 'draft-worker', level: config.logLevel });
   const observability = createObservability({});
   const connection = { ...config.redis, maxRetriesPerRequest: null, connectTimeout: 2000 };
-  const ai = createAIProvider();
+  const ai = createWorkerAI(config);
   const kinds = Object.keys(DRAFT_QUEUES) as (keyof typeof DRAFT_QUEUES)[];
   const queues = kinds.map(
     (kind) =>

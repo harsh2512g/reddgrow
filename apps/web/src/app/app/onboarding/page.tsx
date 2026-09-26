@@ -1,11 +1,42 @@
-import { loadWorkspace } from '@/lib/organizations/server';
+import { loadOnboarding } from '@/lib/onboarding/server';
 import { OrganizationForm } from '@/components/phase1/organization-form';
 import { PageHeading, ResponsibleNote } from '@/components/phase1/primitives';
 import { createOrganizationAction } from '../actions';
 import Link from 'next/link';
-export default async function OnboardingPage() {
-  const { user, organizations } = await loadWorkspace();
+import { SetupChecklist } from '@/components/onboarding/checklist';
+import { LocalKnowledgeNotice } from '@/components/phase2/primitives';
+export default async function OnboardingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ brandId?: string; create?: string }>;
+}) {
+  const params = await searchParams;
+  const { user, organizations, active, brand, state, knowledgeEnabled } = await loadOnboarding(
+    params.brandId,
+  );
   const ownsWorkspace = organizations.some((item) => item.role === 'owner');
+  if (active && params.create !== '1')
+    return (
+      <>
+        <PageHeading
+          eyebrow="Guided setup"
+          title={
+            brand
+              ? `Bring ${brand.name} into focus.`
+              : 'From product knowledge to useful conversations.'
+          }
+          description="Follow these steps to build an evidence-backed opportunity feed. Your progress is saved in your workspace."
+        />
+        {knowledgeEnabled ? (
+          <SetupChecklist state={state} canManage={['owner', 'admin'].includes(active.role)} />
+        ) : (
+          <LocalKnowledgeNotice />
+        )}
+        <div className="mt-6">
+          <ResponsibleNote />
+        </div>
+      </>
+    );
   return (
     <>
       <PageHeading

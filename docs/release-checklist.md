@@ -1,6 +1,6 @@
 # Release checklist
 
-Local Phase 8 acceptance and production launch are separate decisions. Use the current [implementation status](../IMPLEMENTATION_STATUS.md) and [Phase 8 verification](phase-8-verification.md) for executed evidence. Checked local items refer to the 2026-09-19 evidence; hosted/release items below remain unverified. Clean whole-database reset/restore was not performed on existing local records.
+Local acceptance and production launch are separate decisions. Use the current [implementation status](../IMPLEMENTATION_STATUS.md), [Step 12 verification](audit-verification.md) and [Step 13 review](step-13-review.md) for dated evidence. Step 12 completed a disposable database reset/seed rehearsal and restored original services; existing local records were not reset. This was not a database-plus-Storage backup restoration test.
 
 ## Local release candidate
 
@@ -20,14 +20,15 @@ Local Phase 8 acceptance and production launch are separate decisions. Use the c
 ## Before any hosted launch
 
 - [ ] Owner explicitly approves new personal accounts, destinations, runtime profile, migrations and external writes.
-- [ ] [Runtime activation prerequisites](deployment.md) are implemented; no local-only guard is simply bypassed.
+- [x] [Runtime activation prerequisites](deployment.md) are implemented and covered by local configuration/authority tests; deployment remains unverified.
 - [ ] Hosted migration history/schema/roles/RLS and private Storage are independently verified.
 - [ ] Declared Node 24 and remote CI/service runner have actually passed.
 - [ ] HTTPS host/origin/cookie/CSP behavior and rate limits are verified at deployed ingress.
 - [ ] Database plus Storage restore rehearsal meets an approved RPO/RTO; deletion/revocation replay is tested.
 - [ ] Measured queue/provider/error/latency signals reach an approved monitor and a test alert reaches its operator.
 - [ ] Approved Reddit OAuth and deletion synchronization are live-tested; missing approval leaves ingestion mocked.
-- [ ] Real crawler exists and its SSRF/DNS/redirect/robots/bounds suite passes before customer websites are enabled.
+- [x] The real crawler implementation and injected SSRF/DNS/redirect/robots/bounds suite exist and pass locally.
+- [ ] Approved customer-site crawling, DNS and TLS are verified from the deployed runtime before live website ingestion is enabled.
 - [ ] AI model/dimension/cost/data-processing choices are approved and tested without training on Reddit content.
 - [ ] Stripe test subscription and signed event lifecycle change Supabase limits; no live charge is inferred from fixtures.
 - [ ] Resend approved-recipient delivery and notification opt-out/retry/quiet-hour behavior are verified.

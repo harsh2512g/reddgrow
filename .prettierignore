@@ -2,10 +2,14 @@ node_modules
 .pnpm-store
 .threadsignal
 .local
+.lima
+.colima
+.audit
 .next
 .next-hosted
 .turbo
 dist
+dist-deployment
 coverage
 playwright-report
 test-results

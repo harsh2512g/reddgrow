@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { apiError } from '../api-errors';
 import { KnowledgeError } from '../knowledge/http';
 export class AttributionError extends Error {
   constructor(
@@ -75,7 +76,7 @@ export function attributionFailure(error: unknown) {
   if (['TRACKING_LINK_UNAVAILABLE', 'TRACKING_LINK_NOT_FOUND'].includes(code)) status = 404;
   if (code === 'CONVERSION_KEY_INVALID') status = 401;
   if (!Object.hasOwn(messages, code)) code = 'UNAVAILABLE';
-  return { status, error: { code, message: messages[code]!, requestId: crypto.randomUUID() } };
+  return { status, error: apiError(code, messages[code]!) };
 }
 export function requireData<T>(result: { data: T; error: unknown }): T {
   if (result.error) throw result.error;

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { parseWorkerConfig } from '../src/config';
 import { QUEUE_PREFIX } from '../src/jobs/heartbeat';
+import {
+  createWorkerAI,
+  createWorkerCrawler,
+  createWorkerEmail,
+  createWorkerReddit,
+} from '../src/providers';
 
 const local = {
   DATABASE_URL: 'postgresql://postgres:fixture-password@127.0.0.1:54322/postgres',
@@ -122,5 +128,104 @@ describe('explicit personal hosted worker', () => {
       expect(String(error)).not.toContain(secret);
       expect(error).not.toHaveProperty('cause');
     }
+  });
+});
+
+const deployment = {
+  NODE_ENV: 'production',
+  THREADSIGNAL_WORKER_MODE: 'deployment',
+  THREADSIGNAL_SUPABASE_MODE: 'deployment',
+  THREADSIGNAL_DEPLOYMENT_APPROVED: 'true',
+  THREADSIGNAL_RUNTIME_ROLE: 'worker',
+  THREADSIGNAL_SUPABASE_PROJECT_REF: projectRef,
+  NEXT_PUBLIC_SUPABASE_URL: `https://${projectRef}.supabase.co`,
+  NEXT_PUBLIC_APP_URL: 'https://app.threadsignal.example.com',
+  DATABASE_URL: `postgresql://threadsignal_runtime_worker:synthetic-password@db.${projectRef}.supabase.co:5432/postgres`,
+  THREADSIGNAL_DATABASE_CA: ca,
+  SUPABASE_SECRET_KEY: `sb_secret_${'synthetic'.repeat(3)}`,
+  REDIS_URL: 'rediss://default:synthetic-password@redis.threadsignal.example.com:6379/0',
+};
+
+describe('explicit deployment worker without external connections', () => {
+  it('requires distinct deployment role, TLS, managed Redis and explicit provider selection', () => {
+    const config = parseWorkerConfig(deployment);
+    expect(config).toMatchObject({
+      mode: 'deployment',
+      appOrigin: deployment.NEXT_PUBLIC_APP_URL,
+      providers: {
+        ai: { mode: 'mock' },
+        reddit: { mode: 'mock' },
+        email: { mode: 'console' },
+        crawler: 'fixture',
+      },
+    });
+    expect(config.database.username).toBe('threadsignal_runtime_worker');
+    expect(config.database.ssl).toMatchObject({
+      rejectUnauthorized: true,
+      servername: `db.${projectRef}.supabase.co`,
+    });
+    expect(config.redis).toMatchObject({
+      tls: { rejectUnauthorized: true, servername: 'redis.threadsignal.example.com' },
+    });
+    expect(config.queuePrefix).toBe(`threadsignal-deployment-${projectRef}`);
+    expect(createWorkerAI(config).mode).toBe('mock');
+    expect(createWorkerReddit(config).mode).toBe('mock');
+    expect(createWorkerCrawler(config).mode).toBe('fixture');
+    expect(createWorkerEmail(config).mode).toBe('console');
+  });
+  it('constructs configured real adapters without network requests or ambient credential discovery', () => {
+    const config = parseWorkerConfig({
+      ...deployment,
+      CRAWLER_PROVIDER: 'simple',
+      REDDIT_PROVIDER: 'oauth',
+      REDDIT_COMMERCIAL_APPROVAL_CONFIRMED: 'true',
+      REDDIT_CLIENT_ID: 'synthetic_client',
+      REDDIT_CLIENT_SECRET: 'synthetic-client-secret',
+      REDDIT_USER_AGENT: 'web:threadsignal:v1.0 (by /u/synthetic_user)',
+      AI_PROVIDER: 'openai',
+      OPENAI_API_KEY: 'synthetic-ai-value',
+      AI_FAST_MODEL: 'configured-fast',
+      AI_SMART_MODEL: 'configured-smart',
+      AI_EMBEDDING_MODEL: 'configured-embedding',
+      AI_MODEL_COSTS_JSON: '{"configured-smart":{"inputPerMillion":2,"outputPerMillion":4}}',
+      EMAIL_PROVIDER: 'resend',
+      RESEND_API_KEY: `re_${'synthetic'.repeat(3)}`,
+      EMAIL_FROM: 'notifications@threadsignal.example.com',
+    });
+    expect(createWorkerAI(config).mode).toBe('openai');
+    expect(config.providers?.ai.options?.modelCosts).toEqual({
+      'configured-smart': { inputPerMillion: 2, outputPerMillion: 4 },
+    });
+    expect(createWorkerReddit(config).mode).toBe('oauth');
+    expect(createWorkerCrawler(config).mode).toBe('simple');
+    expect(createWorkerEmail(config).mode).toBe('resend');
+  });
+  it.each([
+    { THREADSIGNAL_DEPLOYMENT_APPROVED: 'false' },
+    { THREADSIGNAL_LOCAL: '1' },
+    { THREADSIGNAL_RUNTIME_ROLE: 'web' },
+    { NODE_ENV: 'development' },
+    { DATABASE_URL: deployment.DATABASE_URL.replace('threadsignal_runtime_worker', 'postgres') },
+    { REDIS_URL: 'redis://127.0.0.1:56379' },
+    { SUPABASE_SECRET_KEY: undefined },
+    { CRAWLER_PROVIDER: 'firecrawl', FIRECRAWL_API_KEY: 'synthetic-unused-value' },
+    { AI_PROVIDER: 'openai' },
+    { EMAIL_PROVIDER: 'resend' },
+    { REDDIT_PROVIDER: 'oauth' },
+  ])('rejects incomplete, mixed or privileged deployment configuration (%#)', (override) => {
+    expect(() => parseWorkerConfig({ ...deployment, ...override })).toThrow(
+      'Invalid approved worker deployment configuration.',
+    );
+  });
+  it('refuses an externally selected provider attached to a local runtime object', () => {
+    const config = parseWorkerConfig(local);
+    config.providers = {
+      crawler: 'simple',
+      ai: { mode: 'mock' },
+      reddit: { mode: 'mock' },
+      email: { mode: 'console' },
+    };
+    expect(() => createWorkerCrawler(config)).toThrow('approved deployment');
+    expect(() => createWorkerAI(config)).toThrow('approved deployment');
   });
 });

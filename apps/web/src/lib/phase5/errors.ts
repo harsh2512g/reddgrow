@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { apiError, type ApiRequestId } from '../api-errors';
 import { DraftError } from '../phase4/api';
 import { KnowledgeError } from '../knowledge/http';
 export class ExtensionError extends Error {
@@ -41,7 +42,7 @@ const messages: Record<string, string> = {
   INVALID_COMMENT_URL: 'Use a comment permalink from this Reddit discussion.',
   UNAVAILABLE: 'The extension service could not complete this request. Please try again.',
 };
-export function extensionFailure(error: unknown) {
+export function extensionFailure(error: unknown, requestId?: ApiRequestId) {
   let code = 'UNAVAILABLE',
     status = 500;
   if (
@@ -78,10 +79,11 @@ export function extensionFailure(error: unknown) {
   return {
     status,
     body: {
-      error: {
-        code: messages[code] ? code : 'UNAVAILABLE',
-        message: messages[code] ?? messages.UNAVAILABLE,
-      },
+      error: apiError(
+        Object.hasOwn(messages, code) ? code : 'UNAVAILABLE',
+        Object.hasOwn(messages, code) ? messages[code]! : messages.UNAVAILABLE!,
+        requestId,
+      ),
     },
   };
 }

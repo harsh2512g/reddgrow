@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   order: vi.fn(),
 }));
 vi.mock('server-only', () => ({}));
+vi.mock('../src/lib/provider-plan', () => ({ requireActiveProviderPlan: vi.fn() }));
+vi.mock('../src/lib/phase7/database', () => ({ billingDatabase: vi.fn() }));
 vi.mock('../src/lib/mutation-rate-limit', () => ({
   enforceMutationRateLimit: mocks.mutationLimit,
 }));
@@ -78,6 +80,7 @@ function request(body: unknown = {}, headers: Record<string, string> = {}) {
 }
 function role(value: string) {
   mocks.organization.mockResolvedValue({
+    user: { id: '50000000-0000-4000-8000-000000000001' },
     organization: { id: organizationId, role: value },
     supabase: { from: mocks.from, rpc: mocks.rpc },
   });
@@ -87,7 +90,10 @@ async function response(action: () => Promise<unknown>, status: number, code?: s
   expect(result.status).toBe(status);
   expect(result.headers.get('cache-control')).toContain('no-store');
   const body: unknown = await result.json();
-  if (code) expect(body).toMatchObject({ error: { code } });
+  if (code)
+    expect(body).toMatchObject({
+      error: { code, details: {}, requestId: result.headers.get('x-request-id') },
+    });
   return body;
 }
 beforeEach(() => {
@@ -96,6 +102,8 @@ beforeEach(() => {
   vi.stubEnv('THREADSIGNAL_SERVICES_READY', '1');
   mocks.environment.mockReturnValue({
     THREADSIGNAL_SUPABASE_MODE: 'local',
+    REDDIT_PROVIDER: 'mock',
+    AI_PROVIDER: 'mock',
     NEXT_PUBLIC_APP_URL: origin,
   });
   const builder = {

@@ -1,6 +1,14 @@
+import 'server-only';
+import { getServerEnv } from '../env/server';
+import { deploymentRuntime } from '../env/runtime';
 import development from '../../../../../config/extension-development.json';
 import { codeSchema, tokenSchema } from '@threadsignal/extension-contracts';
-export const extensionId = development.extensionId;
+const deployment =
+  process.env.THREADSIGNAL_SUPABASE_MODE === 'deployment'
+    ? deploymentRuntime(getServerEnv())
+    : undefined;
+const apiOrigin = deployment?.appOrigin ?? development.apiOrigin;
+export const extensionId = deployment?.extensionId ?? development.extensionId;
 export const extensionOrigin = `chrome-extension://${extensionId}`;
 export { codeSchema, tokenSchema };
 export function trustedExtensionHost(request: Request) {
@@ -8,8 +16,8 @@ export function trustedExtensionHost(request: Request) {
   // Host as well, so normalization never grants another loopback name or address.
   const url = new URL(request.url);
   return (
-    request.headers.get('host') === new URL(development.apiOrigin).host &&
-    (url.origin === development.apiOrigin || url.origin === 'http://localhost:3000')
+    request.headers.get('host') === new URL(apiOrigin).host &&
+    (url.origin === apiOrigin || (!deployment && url.origin === 'http://localhost:3000'))
   );
 }
 export function trustedExtensionRequest(request: Request) {

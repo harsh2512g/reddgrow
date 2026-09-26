@@ -194,6 +194,7 @@ describe('approved draft manual handoff', () => {
       'https://www.reddit.com/r/saas/comments/fixture_001/thread/abc123/';
     render(
       <DraftHandoff
+        allowLocalFixture
         detail={detail}
         organizationId={phase4Ids.organization}
         canAct
@@ -213,6 +214,33 @@ describe('approved draft manual handoff', () => {
     expect(screen.queryByRole('link', { name: 'View recorded comment ↗' })).not.toBeInTheDocument();
     expect(screen.getByText(/not a live Reddit discussion/)).toBeInTheDocument();
   });
+  it.each([
+    'https://www.reddit.com/r/SaaS/comments/fixture001',
+    'https://www.reddit.com/r/SaaS/comments/fixture_001/thread/',
+    'http://127.0.0.1:3000/extension-fixture/reddit/r/saas/comments/fixture_001/fixture',
+  ])(
+    'never offers a local practice link outside an explicitly local workspace: %s',
+    (permalink) => {
+      const detail = approvedDraft();
+      detail.opportunity.post.permalink = permalink;
+      detail.draft.published_at = '2026-09-17T00:20:00Z';
+      detail.draft.published_version = 1;
+      detail.draft.published_comment_url =
+        'https://www.reddit.com/r/saas/comments/fixture_001/thread/abc123/';
+      render(
+        <DraftHandoff
+          detail={detail}
+          organizationId={phase4Ids.organization}
+          canAct
+          disabled={false}
+          onUpdated={vi.fn()}
+        />,
+      );
+      expect(screen.queryByRole('link', { name: /discussion|comment/ })).not.toBeInTheDocument();
+      expect(screen.getByText(/only in the local practice workspace/)).toBeInTheDocument();
+      expect(request).not.toHaveBeenCalled();
+    },
+  );
   it('offers a safe Reddit link for current approvals and disables use for dirty or stale drafts', () => {
     const detail = approvedDraft();
     const view = render(
@@ -255,6 +283,26 @@ describe('approved draft manual handoff', () => {
     );
     expect(screen.getByText(/Approve the current saved version/)).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Open Reddit discussion' })).not.toBeInTheDocument();
+  });
+  it('keeps approved real-provider Reddit links separate from synthetic alias handling', () => {
+    const detail = approvedDraft();
+    detail.opportunity.post.provider = 'oauth';
+    detail.opportunity.post.permalink = 'https://www.reddit.com/r/SaaS/comments/fixture001/topic/';
+    render(
+      <DraftHandoff
+        allowLocalFixture
+        detail={detail}
+        organizationId={phase4Ids.organization}
+        canAct
+        disabled={false}
+        onUpdated={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('link', { name: 'Open Reddit discussion' })).toHaveAttribute(
+      'href',
+      'https://www.reddit.com/r/saas/comments/fixture001/thread/',
+    );
+    expect(screen.queryByRole('link', { name: 'Open mock discussion' })).not.toBeInTheDocument();
   });
   it('requires explicit publication confirmation and a comment link for the matching thread', async () => {
     const detail = approvedDraft();

@@ -60,7 +60,7 @@ export function SourceForm({ brand }: { brand: Brand }) {
         setResult({
           status: 'error',
           message:
-            'No approved fixture pages are available for this website. Upload a document or add a note instead.',
+            'No approved pages are available for this website. Upload a document or add a note instead.',
         });
     } catch (error) {
       setResult({ status: 'error', message: requestMessage(error) });
@@ -199,8 +199,8 @@ export function SourceForm({ brand }: { brand: Brand }) {
                 <div>
                   <p className="text-sm font-semibold">Review before importing</p>
                   <p className="mt-2 max-w-lg text-xs leading-6 text-muted-foreground">
-                    Website ingestion uses approved local fixtures. No external website is fetched.
-                    The ClarityScale AI demo includes product, pricing, and documentation pages.
+                    Review pages on your approved website before importing. Local fixture mode uses
+                    synthetic pages; a configured crawler fetches only your selected public pages.
                   </p>
                   <p className="mt-2 break-all font-mono text-[11px] text-primary">
                     {brand.website_url}

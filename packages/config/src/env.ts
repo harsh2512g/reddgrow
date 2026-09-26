@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseDeploymentRuntime } from './deployment.js';
 
 const optionalText = z.preprocess(
   (value) => (value === '' ? undefined : value),
@@ -6,6 +7,39 @@ const optionalText = z.preprocess(
 );
 
 const optionalUrl = z.preprocess((value) => (value === '' ? undefined : value), z.url().optional());
+
+const modelCostsSchema = z
+  .record(
+    z
+      .string()
+      .min(1)
+      .max(150)
+      .refine((key) => !['__proto__', 'constructor', 'prototype'].includes(key)),
+    z
+      .object({
+        inputPerMillion: z.number().finite().nonnegative(),
+        outputPerMillion: z.number().finite().nonnegative(),
+      })
+      .strict(),
+  )
+  .refine((value) => Object.keys(value).length <= 50);
+const optionalModelCosts = z.preprocess(
+  (value) => (value === '' ? undefined : value),
+  z
+    .string()
+    .max(16384)
+    .transform((value, context) => {
+      try {
+        const parsed = modelCostsSchema.safeParse(JSON.parse(value));
+        if (parsed.success) return parsed.data;
+      } catch {
+        /* Report the field name only through the environment error boundary. */
+      }
+      context.addIssue({ code: 'custom', message: 'Invalid model cost configuration' });
+      return z.NEVER;
+    })
+    .optional(),
+);
 
 const optionalPublishableKey = z.preprocess(
   (value) => (value === '' ? undefined : value),
@@ -54,7 +88,13 @@ const serverEnvSchema = z
     ...publicShape,
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     PRODUCT_NAME: z.literal('ThreadSignal').default('ThreadSignal'),
-    THREADSIGNAL_SUPABASE_MODE: z.enum(['local', 'personal-development']).default('local'),
+    THREADSIGNAL_SUPABASE_MODE: z
+      .enum(['local', 'personal-development', 'deployment'])
+      .default('local'),
+    THREADSIGNAL_DEPLOYMENT_APPROVED: booleanFlag,
+    THREADSIGNAL_RUNTIME_ROLE: z.enum(['web', 'worker']).optional(),
+    THREADSIGNAL_LOCAL: z.string().optional(),
+    THREADSIGNAL_DATABASE_CA: optionalText,
     THREADSIGNAL_HOSTED_KNOWLEDGE_READY: z.enum(['0', '1']).default('0'),
     THREADSIGNAL_SUPABASE_PROJECT_REF: z.preprocess(
       (value) => (value === '' ? undefined : value),
@@ -85,6 +125,7 @@ const serverEnvSchema = z
     AI_FAST_MODEL: optionalText,
     AI_SMART_MODEL: optionalText,
     AI_EMBEDDING_MODEL: optionalText,
+    AI_MODEL_COSTS_JSON: optionalModelCosts,
     AI_MAX_RETRIES: z.coerce.number().int().min(0).max(5).default(2),
     CRAWLER_PROVIDER: z.enum(['fixture', 'simple', 'firecrawl']).default('fixture'),
     FIRECRAWL_API_KEY: optionalText,
@@ -115,6 +156,23 @@ const serverEnvSchema = z
     MAX_GROWTH_CRAWL_PAGES: z.coerce.number().int().min(1).max(1000).default(100),
   })
   .superRefine((env, context) => {
+    if (env.THREADSIGNAL_SUPABASE_MODE === 'deployment') {
+      try {
+        parseDeploymentRuntime(env, env.THREADSIGNAL_RUNTIME_ROLE ?? 'web');
+      } catch {
+        context.addIssue({
+          code: 'custom',
+          path: ['THREADSIGNAL_SUPABASE_MODE'],
+          message: 'Invalid deployment configuration',
+        });
+      }
+    } else if (env.THREADSIGNAL_DEPLOYMENT_APPROVED || env.THREADSIGNAL_RUNTIME_ROLE) {
+      context.addIssue({
+        code: 'custom',
+        path: ['THREADSIGNAL_RUNTIME_ROLE'],
+        message: 'Deployment configuration cannot be used in local profiles',
+      });
+    }
     const required = (names: readonly (keyof typeof env)[]) => {
       for (const name of names) {
         const value = env[name];

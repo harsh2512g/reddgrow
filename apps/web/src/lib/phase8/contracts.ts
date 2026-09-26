@@ -67,6 +67,8 @@ export const operationalMetricsSchema = z
     draft_pass: count,
     draft_warning: count,
     draft_blocked: count,
+    ai_unpriced_tasks: count.default(0),
+    ai_unreported_usage_tasks: count.default(0),
     ai_input_tokens: count,
     ai_output_tokens: count,
     ai_estimated_cost_usd: z.number().nonnegative(),

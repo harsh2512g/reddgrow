@@ -279,6 +279,85 @@ describe('explicit OpenAI-compatible adapter with intercepted transport', () => 
     expect((await ai.generateStructured(request)).provider).toBe('openai:configured-fallback');
     expect(models).toEqual(['configured-smart', 'configured-fallback']);
   });
+  it('retains independently valid usage when completion or embedding output is malformed', async () => {
+    const usage: AIUsage[] = [];
+    const ai = new OpenAICompatibleProvider(
+      options(
+        async () =>
+          Response.json({
+            choices: [],
+            data: [{ index: 0, embedding: [0.1] }],
+            usage: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16 },
+          }),
+        { onUsage: (receipt) => usage.push(receipt) },
+      ),
+    );
+    await expect(ai.generateStructured(request)).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    });
+    await expect(ai.embed({ texts: ['Synthetic source'], dimensions: 512 })).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    });
+    expect(usage).toHaveLength(2);
+    expect(usage[0]).toMatchObject({
+      task: 'draft.generate',
+      model: 'configured-smart',
+      input_tokens: 12,
+      output_tokens: 4,
+    });
+    expect(usage[1]).toMatchObject({
+      task: 'embedding',
+      model: 'configured-embedding',
+      input_tokens: 12,
+    });
+  });
+  it('emits one receipt per actual retry/fallback attempt and keeps unknown usage null', async () => {
+    const usage: AIUsage[] = [];
+    let calls = 0;
+    const ai = new OpenAICompatibleProvider(
+      options(
+        async () => (++calls === 1 ? new Response('unavailable', { status: 503 }) : success()),
+        {
+          fallbackModel: 'configured-fallback',
+          maxRetries: 0,
+          onUsage: (receipt) => usage.push(receipt),
+        },
+      ),
+    );
+    await ai.generateStructured(request);
+    expect(usage).toHaveLength(2);
+    expect(usage[0]).toMatchObject({
+      model: 'configured-smart',
+      input_tokens: null,
+      output_tokens: null,
+      estimated_cost_usd: null,
+    });
+    expect(usage[1]).toMatchObject({
+      model: 'configured-fallback',
+      input_tokens: 100,
+      output_tokens: 50,
+    });
+  });
+  it('reports a successful response without usage as unknown with its configured model', async () => {
+    const usage: AIUsage[] = [];
+    const ai = new OpenAICompatibleProvider(
+      options(
+        async () =>
+          Response.json({
+            choices: [{ message: { content: '{"answer":"safe"}' }, finish_reason: 'stop' }],
+          }),
+        { onUsage: (receipt) => usage.push(receipt) },
+      ),
+    );
+    await ai.generateStructured(request);
+    expect(usage).toHaveLength(1);
+    expect(usage[0]).toMatchObject({
+      model: 'configured-smart',
+      input_tokens: null,
+      output_tokens: null,
+      estimated_cost_usd: null,
+    });
+  });
   it('validates dimensions, numeric vectors and input-index identities for stored 512-dimensional embeddings', async () => {
     let body: unknown;
     const transport: typeof fetch = async (_url, init) => {

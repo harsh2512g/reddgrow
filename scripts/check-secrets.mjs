@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync, lstatSync } from 'node:fs';
 import { join, extname } from 'node:path';
 import { root, assertInside, localEnvironment } from './isolation.mjs';
+import { secretFindings } from './secret-patterns.mjs';
 
 const result = spawnSync(
   'git',
@@ -22,7 +23,9 @@ let failures = 0;
 let checked = 0;
 for (const path of [...new Set(result.stdout.split('\0').filter(Boolean))]) {
   if (
-    /(^|\/)(node_modules|\.threadsignal|\.pnpm-store)(\/|$)/.test(path) ||
+    /(^|\/)(node_modules|\.threadsignal|\.pnpm-store|\.local|\.lima|\.colima|\.audit)(\/|$)/.test(
+      path,
+    ) ||
     /(^|\/)\.env(?!\.example$)/.test(path) ||
     /\.(pem|p12|pfx|key)$/.test(path)
   ) {
@@ -51,18 +54,10 @@ for (const path of [...new Set(result.stdout.split('\0').filter(Boolean))]) {
     }
     continue;
   }
-  const forbidden = [
-    /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
-    /\b(?:sk_live_|rk_live_)[A-Za-z0-9]{20,}/,
-    /\bsk-(?:proj-)?[A-Za-z0-9_-]{40,}/,
-    /\bAKIA[A-Z0-9]{16}\b/,
-    /\bgh[pousr]_[A-Za-z0-9]{30,}\b/,
-  ];
-  for (const pattern of forbidden)
-    if (pattern.test(text)) {
-      process.stderr.write(`Potential secret pattern in ${path}; value withheld.\n`);
-      failures++;
-    }
+  for (const category of secretFindings(text)) {
+    process.stderr.write(`Potential ${category} credential in ${path}; value withheld.\n`);
+    failures++;
+  }
   if (
     !['AGENTS.md', 'scripts/check-secrets.mjs'].includes(path) &&
     /gofynd|pixelbin|\bfynd\b/i.test(text)

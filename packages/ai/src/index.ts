@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { AIProviderError, OpenAICompatibleProvider, type OpenAIProviderOptions } from './openai.js';
 export * from './openai.js';
+export * from './identity.js';
 import {
   mockOpportunityAssessment,
   mockKeywordSuggestions,
@@ -16,6 +17,7 @@ const generationInputSchema = z.object({
 
 export interface AIProvider {
   readonly mode: 'mock' | 'openai';
+  readonly embeddingIdentity?: string;
   generateStructured<T>(input: {
     task: string;
     input: string;
@@ -27,6 +29,7 @@ export interface AIProvider {
 /** Deterministic local fixture generation and lexical feature-hash embeddings. */
 export class MockAIProvider implements AIProvider {
   readonly mode = 'mock';
+  readonly embeddingIdentity = 'mock:deterministic:512:v1';
   constructor(
     private readonly fixtures: Readonly<Record<string, unknown>> = {
       health: { status: 'ready', provider: 'mock' },

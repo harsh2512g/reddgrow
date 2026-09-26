@@ -3,13 +3,22 @@ import { isIP } from 'node:net';
 import { z } from 'zod';
 import { ProviderUnavailableError } from '@threadsignal/shared';
 import { fixturePages } from './fixtures.js';
+import { SimpleCrawlerProvider, type SimpleCrawlerOptions } from './simple.js';
 export { fixturePages } from './fixtures.js';
+export {
+  SimpleCrawlerProvider,
+  type SimpleCrawlerOptions,
+  type WebsiteCrawlInput,
+  type WebsiteCrawlResult,
+} from './simple.js';
+export { CrawlError, isPublicAddress, normalizeNetworkUrl } from './security.js';
 
 const fixturePageSchema = z.object({
   url: z.url(),
   title: z.string(),
   text: z.string(),
   checksum: z.string(),
+  fetchedAt: z.iso.datetime().optional(),
 });
 export type CrawlerPage = z.infer<typeof fixturePageSchema>;
 export interface CrawlerProvider {
@@ -70,7 +79,9 @@ export class FixtureCrawlerProvider implements CrawlerProvider {
 }
 export function createCrawlerProvider(
   mode: 'fixture' | 'simple' | 'firecrawl' = 'fixture',
+  options: SimpleCrawlerOptions = {},
 ): CrawlerProvider {
-  if (mode !== 'fixture') throw new ProviderUnavailableError();
+  if (mode === 'simple') return new SimpleCrawlerProvider(options);
+  if (mode === 'firecrawl') throw new ProviderUnavailableError();
   return new FixtureCrawlerProvider();
 }
