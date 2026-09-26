@@ -11,18 +11,19 @@ import { Button } from '@threadsignal/ui';
 import { FormField, ResultNotice } from './primitives';
 import type { ActionResult, FormAction } from './types';
 import { LocalAccountHelp } from './local-account-help';
+import { googleSignInDestination } from '@/lib/auth/google-client';
 
 const loginSchema = z.object({ email: z.email('Enter a valid email address.').max(254) });
 
 export function LoginForm({
   action,
-  googleHref,
+  googleSupabaseOrigin,
   googleNext = '/app',
   initialError,
   localInboxHref,
 }: {
   action: FormAction;
-  googleHref?: string;
+  googleSupabaseOrigin?: string;
   googleNext?: string;
   initialError?: string;
   localInboxHref?: string;
@@ -30,6 +31,7 @@ export function LoginForm({
   const [result, setResult] = useState<ActionResult | null>(
     initialError ? { status: 'error', message: initialError } : null,
   );
+  const [googlePending, setGooglePending] = useState(false);
   const {
     register,
     handleSubmit,
@@ -82,20 +84,40 @@ export function LoginForm({
     <div className="space-y-6">
       {localInboxHref && <LocalAccountHelp />}
       <div>
-        {googleHref ? (
-          <form action={googleHref} method="post">
-            <input type="hidden" name="next" value={googleNext} />
-            <Button type="submit" variant="outline" className="w-full">
-              <GoogleMark /> Continue with Google
-            </Button>
-          </form>
+        {googleSupabaseOrigin ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            disabled={googlePending || isSubmitting}
+            onClick={async () => {
+              setResult(null);
+              setGooglePending(true);
+              try {
+                const destination = await googleSignInDestination(googleNext, googleSupabaseOrigin);
+                window.location.assign(destination);
+              } catch (error) {
+                setResult({
+                  status: 'error',
+                  message:
+                    error instanceof Error &&
+                    error.message === 'Too many sign-in attempts. Wait a few minutes and try again.'
+                      ? 'Too many sign-in attempts. Wait a few minutes and try again.'
+                      : 'Google sign-in is temporarily unavailable. Please try again.',
+                });
+                setGooglePending(false);
+              }
+            }}
+          >
+            <GoogleMark /> {googlePending ? 'Connecting to Google…' : 'Continue with Google'}
+          </Button>
         ) : (
           <>
             <Button type="button" variant="outline" disabled className="w-full">
               <GoogleMark /> Continue with Google
             </Button>
             <p className="mt-2 text-center text-xs leading-5 text-muted-foreground">
-              Google sign-in is not connected in this local workspace.
+              Google sign-in is not enabled here. You can use an email sign-in link.
             </p>
           </>
         )}
@@ -143,7 +165,7 @@ export function LoginForm({
           </div>
         </FormField>
         <ResultNotice result={result} />
-        <Button type="submit" className="w-full" disabled={isSubmitting}>
+        <Button type="submit" className="w-full" disabled={isSubmitting || googlePending}>
           {isSubmitting ? 'Sending your link…' : 'Send magic link'}
           <ArrowRight size={16} />
         </Button>

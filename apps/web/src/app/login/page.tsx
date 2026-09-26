@@ -34,8 +34,10 @@ export default async function LoginPage({
                   : 'The sign-in link could not be verified. Request a new link and open it in this browser.',
             }
           : {})}
-        {...(env.GOOGLE_AUTH_ENABLED && process.env.THREADSIGNAL_LOCAL !== '1'
-          ? { googleHref: '/api/auth/google', googleNext: next }
+        {...(env.GOOGLE_AUTH_ENABLED &&
+        env.NEXT_PUBLIC_SUPABASE_URL &&
+        process.env.THREADSIGNAL_LOCAL !== '1'
+          ? { googleSupabaseOrigin: new URL(env.NEXT_PUBLIC_SUPABASE_URL).origin, googleNext: next }
           : {})}
         {...(process.env.THREADSIGNAL_LOCAL === '1' &&
         env.THREADSIGNAL_SUPABASE_MODE !== 'personal-development'

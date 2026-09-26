@@ -7,13 +7,15 @@ const mocks = vi.hoisted(() => ({
   rate: vi.fn(),
   create: vi.fn(),
   remove: vi.fn(),
+  env: vi.fn(),
+  config: vi.fn(),
 }));
 vi.mock('server-only', () => ({}));
 vi.mock('../src/lib/env/server', () => ({
-  getServerEnv: () => ({ NEXT_PUBLIC_APP_URL: 'http://127.0.0.1:3000', GOOGLE_AUTH_ENABLED: true }),
+  getServerEnv: mocks.env,
 }));
 vi.mock('../src/lib/auth/config', () => ({
-  getAuthConfiguration: () => ({ appUrl: 'http://127.0.0.1:3000', url: 'http://127.0.0.1:54321' }),
+  getAuthConfiguration: mocks.config,
 }));
 vi.mock('../src/lib/auth/server', () => ({ createServerSupabase: mocks.create }));
 vi.mock('../src/lib/auth/rate-limit', () => ({ enforceAuthRateLimit: mocks.rate }));
@@ -39,6 +41,14 @@ describe('authentication actions', () => {
   beforeEach(() => {
     vi.stubEnv('THREADSIGNAL_LOCAL', '1');
     for (const mock of Object.values(mocks)) mock.mockReset();
+    mocks.env.mockReturnValue({
+      NEXT_PUBLIC_APP_URL: 'http://127.0.0.1:3000',
+      GOOGLE_AUTH_ENABLED: true,
+    });
+    mocks.config.mockReturnValue({
+      appUrl: 'http://127.0.0.1:3000',
+      url: 'http://127.0.0.1:54321',
+    });
     mocks.create.mockResolvedValue({
       auth: { signInWithOtp: mocks.otp, signOut: mocks.logout, signInWithOAuth: mocks.oauth },
     });
@@ -97,6 +107,49 @@ describe('authentication actions', () => {
       'sb-threadsignal-auth-token-flow-fixtureFlow123-code-verifier',
       'sb-threadsignal-auth-token-flows-code-verifier',
     ]);
+  });
+  it('starts enabled hosted Google login with PKCE cookies and the configured HTTPS callback', async () => {
+    vi.stubEnv('THREADSIGNAL_LOCAL', '0');
+    const appUrl = 'https://threadsignal.example';
+    const supabase = 'https://abcdefghijklmnopqrst.supabase.co';
+    mocks.env.mockReturnValue({ NEXT_PUBLIC_APP_URL: appUrl, GOOGLE_AUTH_ENABLED: true });
+    mocks.config.mockReturnValue({ appUrl, url: supabase });
+    const url = `${supabase}/auth/v1/authorize?provider=google&code_challenge=fixture`;
+    mocks.oauth.mockResolvedValue({ data: { url }, error: null });
+    expect(await requestGoogleSignIn('/app/settings/team', new Headers({ origin: appUrl }))).toBe(
+      url,
+    );
+    expect(mocks.create).toHaveBeenCalledWith({ writable: true });
+    expect(mocks.oauth).toHaveBeenCalledWith({
+      provider: 'google',
+      options: {
+        redirectTo: `${appUrl}/auth/callback?next=%2Fapp%2Fsettings%2Fteam`,
+        skipBrowserRedirect: true,
+      },
+    });
+    mocks.oauth.mockResolvedValue({
+      data: { url: 'https://untrusted.example/auth/v1/authorize?provider=google' },
+      error: null,
+    });
+    await expect(
+      requestGoogleSignIn('/app', new Headers({ origin: appUrl })),
+    ).rejects.toMatchObject({ code: 'AUTH_UNAVAILABLE' });
+  });
+  it('uses the canonical HTTPS origin when requesting a hosted magic link', async () => {
+    const appUrl = 'https://threadsignal.example';
+    mocks.env.mockReturnValue({ NEXT_PUBLIC_APP_URL: appUrl });
+    mocks.config.mockReturnValue({ appUrl });
+    await requestMagicLink(
+      { email: 'person@example.test', next: '/app/settings/team' },
+      new Headers({ origin: appUrl }),
+    );
+    expect(mocks.otp).toHaveBeenCalledWith({
+      email: 'person@example.test',
+      options: {
+        shouldCreateUser: true,
+        emailRedirectTo: `${appUrl}/auth/callback?next=%2Fapp%2Fsettings%2Fteam`,
+      },
+    });
   });
   it('still clears local session cookies if Supabase is unavailable', async () => {
     mocks.create.mockRejectedValue(new Error('offline'));

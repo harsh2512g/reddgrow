@@ -5,7 +5,13 @@ import { createServerSupabase } from './server';
 import { getAuthConfiguration } from './config';
 import { AuthActionError } from './errors';
 import { enforceAuthRateLimit } from './rate-limit';
-import { hasTrustedOrigin, isSessionCookie, magicLinkInputSchema, safeNextPath } from './policy';
+import {
+  googleAuthorizationUrl,
+  hasTrustedOrigin,
+  isSessionCookie,
+  magicLinkInputSchema,
+  safeNextPath,
+} from './policy';
 
 export const MAGIC_LINK_MESSAGE = 'Check your email for a sign-in link.';
 
@@ -72,8 +78,7 @@ export async function requestGoogleSignIn(
     options: { redirectTo: callback.toString(), skipBrowserRedirect: true },
   });
   if (error || !data.url) throw new AuthActionError('AUTH_UNAVAILABLE');
-  const target = new URL(data.url);
-  if (target.origin !== config.url || target.pathname !== '/auth/v1/authorize')
-    throw new AuthActionError('AUTH_UNAVAILABLE');
-  return data.url;
+  const target = googleAuthorizationUrl(data.url, config.url);
+  if (!target) throw new AuthActionError('AUTH_UNAVAILABLE');
+  return target;
 }

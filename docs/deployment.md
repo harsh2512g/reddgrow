@@ -79,6 +79,8 @@ No new dependency was installed, version enforcement bypassed or cloud setting c
 
 ## Separate runtime configuration
 
+For Google and magic-link setup, canonical app/callback URLs, email delivery and Vercel protection troubleshooting, see [hosted authentication](hosted-authentication.md).
+
 Use `THREADSIGNAL_SUPABASE_MODE=deployment`, `THREADSIGNAL_DEPLOYMENT_APPROVED=true`, `NODE_ENV=production`, and `THREADSIGNAL_RUNTIME_ROLE=web` or `worker`. The worker additionally requires `THREADSIGNAL_WORKER_MODE=deployment`. Do not set `THREADSIGNAL_LOCAL`; it cannot be combined with this profile. Keep all five provider modes at their documented defaults until each real provider has separate approval.
 
 Both processes need the same exact project reference, `https://<project-ref>.supabase.co`, HTTPS application origin and authenticated `rediss://` endpoint. Supply a trusted PostgreSQL CA PEM as `THREADSIGNAL_DATABASE_CA`; TLS always checks the certificate chain and hostname. `DATABASE_URL` must use the appropriate runtime username, port 5432, database `postgres`, and that project's direct host or session pooler. Pooler usernames include `.<project-ref>`. Administrator users and transaction-pooler port 6543 are rejected. Redis requires verified TLS and an explicit credential; no local Redis URL is accepted in deployment mode.

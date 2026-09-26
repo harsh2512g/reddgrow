@@ -8,13 +8,10 @@ export async function POST(request: Request) {
     const input = await parseAuthBody(
       request,
       z.object({ next: z.string().max(1024).optional() }).strict(),
-      true,
     );
     const url = await requestGoogleSignIn(input.next, request.headers);
-    return new Response(null, {
-      status: 303,
-      headers: { Location: url, 'Cache-Control': 'no-store' },
-    });
+    // The client navigates after receiving the PKCE cookies; a form 303 is blocked by CSP.
+    return Response.json({ url }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) {
     return authErrorResponse(error);
   }

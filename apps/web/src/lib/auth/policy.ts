@@ -57,6 +57,28 @@ export function hasTrustedOrigin(headers: Pick<Headers, 'get'>, appUrl: string):
   }
 }
 
+/** OAuth navigation is accepted only from this application's configured Supabase project. */
+export function googleAuthorizationUrl(value: unknown, supabaseOrigin: string): string | undefined {
+  if (typeof value !== 'string' || value.length > 8192) return undefined;
+  try {
+    const url = new URL(value);
+    if (
+      url.protocol !== 'https:' ||
+      url.origin !== supabaseOrigin ||
+      url.pathname !== '/auth/v1/authorize' ||
+      url.username ||
+      url.password ||
+      url.hash ||
+      url.searchParams.getAll('provider').length !== 1 ||
+      url.searchParams.get('provider') !== 'google'
+    )
+      return undefined;
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+}
+
 export const callbackInputSchema = z
   .object({
     code: z

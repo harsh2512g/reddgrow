@@ -6,6 +6,8 @@ JSON failures use `{ "error": { "code": "INVALID_INPUT", "message": "Check the f
 
 Phase-specific payloads: [knowledge](phase-2-development.md), [opportunities](phase-3-contracts.md), [drafts](phase-4-contracts.md), [extension](extension.md), [attribution](phase-6-development.md), [billing](phase-7-development.md).
 
+`POST /api/auth/google` accepts JSON `{ "next": "/app" }` and returns `{ "url": "<validated Supabase authorization URL>" }` with private/no-store caching and PKCE cookies. After a successful same-origin request, the browser navigates to that URL. It does not return a native form redirect, which the application's strict CSP blocks across origins. Origin checks, provider enablement and Redis limits run before authorization. See [hosted authentication](hosted-authentication.md) for Google and magic-link setup.
+
 ## Brand, knowledge and monitoring reads
 
 `GET /api/brands` lists the active workspace's authorized brands; `GET /api/brands/:id` returns one authorized brand. `GET /api/brands/:id/knowledge` lists its knowledge sources; `GET /api/knowledge/:id` returns an authorized source with its documents. `GET /api/brands/:id/subreddits` and `GET /api/brands/:id/keywords` list saved monitoring configuration. List routes accept `limit` (1–100, default 25) and an optional UUID `after` cursor, returning `next_cursor` or null. Invalid pagination returns 400; malformed knowledge database output remains a private server failure. Organization isolation is enforced before reading tenant data and by Supabase RLS.

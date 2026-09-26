@@ -2,11 +2,11 @@ import { apiError, apiErrorResponse } from '../api-errors';
 const definitions = {
   AUTH_UNAVAILABLE: {
     status: 503,
-    message: 'Sign-in is temporarily unavailable. Start the project services and try again.',
+    message: 'Sign-in is temporarily unavailable. Please try again shortly.',
   },
   AUTH_PROVIDER_UNAVAILABLE: {
     status: 503,
-    message: 'Google sign-in is not enabled in this local environment. Use an email sign-in link.',
+    message: 'Google sign-in is not enabled here. Use an email sign-in link.',
   },
   INVALID_INPUT: { status: 400, message: 'Enter a valid email address and try again.' },
   INVALID_ORIGIN: {

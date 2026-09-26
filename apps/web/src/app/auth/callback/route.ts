@@ -1,19 +1,23 @@
-import { NextResponse } from 'next/server';
 import { createServerSupabase } from '@/lib/auth/server';
 import { getAuthConfiguration } from '@/lib/auth/config';
 import { callbackInputSchema, safeNextPath } from '@/lib/auth/policy';
 import { enforceAuthRateLimit } from '@/lib/auth/rate-limit';
 import { verifiedUser } from '@/lib/auth/session';
 
-function finish(path: string, appUrl: string): NextResponse {
-  return NextResponse.redirect(new URL(path, appUrl), {
+function finish(path: string, appUrl?: string): Response {
+  return new Response(null, {
     status: 303,
-    headers: { 'Cache-Control': 'private, no-store, max-age=0', 'Referrer-Policy': 'no-referrer' },
+    headers: {
+      Location: appUrl ? new URL(path, appUrl).toString() : path,
+      'Cache-Control': 'private, no-store, max-age=0',
+      'Referrer-Policy': 'no-referrer',
+    },
   });
 }
 
 export async function GET(request: Request) {
-  let appUrl = 'http://127.0.0.1:3000';
+  // A configuration failure returns to this site's login page, never the visitor's localhost.
+  let appUrl: string | undefined;
   try {
     const config = getAuthConfiguration();
     appUrl = config.appUrl;

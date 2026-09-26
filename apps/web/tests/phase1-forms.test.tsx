@@ -1,11 +1,17 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LoginForm } from '../src/components/phase1/login-form';
 import { OrganizationForm } from '../src/components/phase1/organization-form';
 import { TeamPanel } from '../src/components/phase1/team-panel';
 import { InvitationPanel } from '../src/components/phase1/invitation-panel';
 import type { ActionResult, FormAction } from '../src/components/phase1/types';
+
+const google = vi.hoisted(() => vi.fn());
+vi.mock('../src/lib/auth/google-client', () => ({ googleSignInDestination: google }));
+beforeEach(() => {
+  google.mockReset();
+});
 
 const success: ActionResult = { status: 'success', message: 'Saved successfully.' };
 const organization = {
@@ -31,6 +37,37 @@ const team = {
 };
 
 describe('Phase 1 forms', () => {
+  it('shows Google pending and retryable failures on the login screen without leaking provider details', async () => {
+    let reject: ((error: Error) => void) | undefined;
+    google.mockImplementation(
+      () =>
+        new Promise<string>((_, failure) => {
+          reject = failure;
+        }),
+    );
+    render(
+      <LoginForm
+        action={action()}
+        googleSupabaseOrigin="https://abcdefghijklmnopqrst.supabase.co"
+        googleNext="/app/settings/team"
+      />,
+    );
+    const button = screen.getByRole('button', { name: 'Continue with Google' });
+    expect(button.closest('form')).toBeNull();
+    await userEvent.click(button);
+    expect(screen.getByRole('button', { name: 'Connecting to Google…' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Send magic link' })).toBeDisabled();
+    expect(google).toHaveBeenCalledWith(
+      '/app/settings/team',
+      'https://abcdefghijklmnopqrst.supabase.co',
+    );
+    reject?.(new Error('private provider details'));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Google sign-in is temporarily unavailable',
+    );
+    expect(screen.queryByText('private provider details')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue with Google' })).toBeEnabled();
+  });
   it('validates an email before dispatching a magic link and explains the unavailable provider', async () => {
     const submit = action();
     render(<LoginForm action={submit} />);

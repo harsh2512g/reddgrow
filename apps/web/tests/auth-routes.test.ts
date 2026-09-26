@@ -7,10 +7,11 @@ const mocks = vi.hoisted(() => ({
   rate: vi.fn(),
   google: vi.fn(),
   create: vi.fn(),
+  config: vi.fn(),
 }));
 vi.mock('server-only', () => ({}));
 vi.mock('../src/lib/auth/config', () => ({
-  getAuthConfiguration: () => ({ appUrl: 'http://127.0.0.1:3000' }),
+  getAuthConfiguration: mocks.config,
 }));
 vi.mock('../src/lib/auth/server', () => ({ createServerSupabase: mocks.create }));
 vi.mock('../src/lib/auth/rate-limit', () => ({ enforceAuthRateLimit: mocks.rate }));
@@ -22,6 +23,7 @@ import { POST as google } from '../src/app/api/auth/google/route';
 describe('authentication route boundaries', () => {
   beforeEach(() => {
     for (const mock of Object.values(mocks)) mock.mockReset();
+    mocks.config.mockReturnValue({ appUrl: 'http://127.0.0.1:3000' });
     mocks.create.mockResolvedValue({
       auth: {
         exchangeCodeForSession: mocks.exchange,
@@ -83,19 +85,45 @@ describe('authentication route boundaries', () => {
     );
     expect(response.headers.get('location')).toBe('http://127.0.0.1:3000/login?error=invalid_link');
   });
-  it('accepts the Google native form destination without exposing it to an external call', async () => {
-    mocks.google.mockResolvedValue('https://fixture.supabase.example/auth/v1/authorize');
+  it('returns the Google destination as JSON so CSP does not block a native form redirect', async () => {
+    const url = 'https://fixture.supabase.example/auth/v1/authorize?provider=google';
+    mocks.google.mockResolvedValue(url);
     const request = new Request('http://127.0.0.1:3000/api/auth/google', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Type': 'application/json',
         Origin: 'http://127.0.0.1:3000',
       },
-      body: 'next=%2Fapp%2Fsettings%2Fteam',
+      body: JSON.stringify({ next: '/app/settings/team' }),
     });
     const response = await google(request);
     expect(mocks.google).toHaveBeenCalledWith('/app/settings/team', request.headers);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('location')).toBeNull();
+    expect(await response.json()).toEqual({ url });
+    expect(response.headers.get('cache-control')).toContain('no-store');
+  });
+  it('does not send a broken hosted callback to localhost or reflect the request host', async () => {
+    mocks.config.mockImplementation(() => {
+      throw new Error('Invalid private configuration');
+    });
+    const response = await callback(
+      new Request('https://untrusted.example/auth/callback?code=fixture-code'),
+    );
     expect(response.status).toBe(303);
-    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('location')).toBe('/login?error=service_unavailable');
+    expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+  it('preserves the HTTPS origin and destination after a verified hosted magic link', async () => {
+    mocks.config.mockReturnValue({ appUrl: 'https://threadsignal.example' });
+    const response = await callback(
+      new Request(
+        'https://threadsignal.example/auth/callback?code=fixture-code&next=%2Fapp%2Fsettings%2Fteam',
+      ),
+    );
+    expect(response.headers.get('location')).toBe('https://threadsignal.example/app/settings/team');
+    expect(mocks.exchange).toHaveBeenCalledWith('fixture-code', undefined);
+    expect(mocks.getUser).toHaveBeenCalledOnce();
   });
 });
